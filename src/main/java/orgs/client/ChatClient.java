@@ -279,6 +279,9 @@ public class ChatClient implements AutoCloseable {
         System.out.println("13. Logout");
         System.out.println("14. Get Media File");
         System.out.println("15. get messages after id ");
+        System.out.println("16. Get User by id");
+        System.out.println("17. Get User by phone number");
+        System.out.println("18. Get chat by id");
     }
 
     private void handleUserInput(String commandInput) {
@@ -536,7 +539,21 @@ public class ChatClient implements AutoCloseable {
                         System.out.println("Failed to get messages: " + UnReadmessagesResponse.getMessage());
                     }
                     return;
-
+                case "16":
+                    System.out.println("Enter user id ");
+                    int getUserId = Integer.parseInt(scanner.nextLine());
+                    getUserById(getUserId);
+                    return;
+                case "17":
+                    System.out.println("Enter user Phone Number ");
+                    String getUserPhoneNumber = scanner.nextLine();
+                    getUserByPhoneNumber(getUserPhoneNumber);
+                    return;
+                case "18":
+                    System.out.println("Enter chat id ");
+                    int  getAChatId = Integer.parseInt(scanner.nextLine());
+                    getChatById(getAChatId);
+                    return;
                 default:
                     System.out.println("Invalid command number.");
                     return;
@@ -977,6 +994,51 @@ public class ChatClient implements AutoCloseable {
             System.out.println("Chat " + chatId + " deleted successfully!");
         } else if (response != null) {
             System.out.println("Failed to delete chat: " + response.getMessage());
+        }
+    }
+
+
+    private void getChatById(int getChatId) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("chat_id", getChatId);
+        Request request = new Request(Command.GET_USER_BY_ID,data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "Chats retrieved by id.".equals(response.getMessage())) {
+            Type chatType = new TypeToken<Chat>() {
+            }.getType();
+            Chat chat = gson.fromJson(response.getData(), chatType);
+            System.out.println("\n--- The Chat ---");
+            System.out.println(chat.toString());
+        }
+    }
+
+    private void getUserByPhoneNumber(String getUserPhoneNumber) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("chat_phone_number", getUserPhoneNumber);
+        Request request = new Request(Command.GET_CHAT_BY_PHONENUMBER,data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "Chats retrieved by phone number.".equals(response.getMessage())) {
+            Type userType = new TypeToken<User>() {
+            }.getType();
+            User user = gson.fromJson(response.getData(), userType);
+            System.out.println("\n--- The user ---");
+            System.out.println(user.toString());
+        }
+    }
+    private void getUserById(int getUserId) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("user_id", getUserId);
+        Request request = new Request(Command.GET_CHAT_BY_ID,data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "User retrieved by id..".equals(response.getMessage())) {
+            Type userType = new TypeToken<User>() {
+            }.getType();
+            User user = gson.fromJson(response.getData(), userType);
+            System.out.println("\n--- The user ---");
+            System.out.println(user.toString());
         }
     }
 

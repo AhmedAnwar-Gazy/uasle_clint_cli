@@ -1,9 +1,12 @@
 package orgs.clintGUI;
 
+import orgs.clintGUI.*;
 import orgs.model.Message;
 import orgs.model.User;
 import orgs.model.Chat;
 import orgs.model.Media;
+import orgs.model.Notification;
+import orgs.model.ChatParticipant;
 import orgs.protocol.Command;
 import orgs.protocol.Request;
 import orgs.protocol.Response;
@@ -17,19 +20,22 @@ import java.lang.reflect.Type;
 import java.net.Socket;
 import java.net.SocketException;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer; // For generic listener registration
 
 /**
  * ChatClient class implemented as a Singleton for use in a JavaFX application.
  * It handles network communication with the chat server. All user interaction
- * logic (input/output) has been removed and replaced with a listener mechanism
- * to communicate with the JavaFX UI.
+ * logic (input/output) has been removed. It uses specialized listener interfaces
+ * for communicating updates and errors to the UI, and its public methods
+ * now return the server's Response object for direct processing by the caller.
  */
 public class ChatClient implements AutoCloseable {
     // Singleton instance
@@ -39,8 +45,8 @@ public class ChatClient implements AutoCloseable {
     private static final int SERVER_PORT = 6373;
     private static final int FILE_TRANSFER_PORT = 6374;
 
-    private String currentFilePathToSend;
-    private String pendingFileTransferId;
+    private String currentFilePathToSend; // Temporary storage for file path during send initiation
+    private String pendingFileTransferId; // Temporary storage for transfer ID during send initiation
 
     private Socket socket;
     private PrintWriter out;
@@ -51,32 +57,45 @@ public class ChatClient implements AutoCloseable {
             .create();
 
     private User currentUser;
-    private ChatClientListener listener; // Listener for UI updates
 
+    // BlockingQueue to hold responses from the server for synchronous command processing
     private final BlockingQueue<Response> responseQueue = new LinkedBlockingQueue<>();
+
+    // --- Specialized Listener Lists ---
+    private final List<OnCommandResponseListener> commandResponseListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnNewMessageListener> newMessageListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnLoginSuccessListener> loginSuccessListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnMessagesRetrievedListener> messagesRetrievedListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnAllUsersRetrievedListener> allUsersRetrievedListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnUserChatsRetrievedListener> userChatsRetrievedListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnContactsRetrievedListener> contactsRetrievedListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnNotificationsRetrievedListener> notificationsRetrievedListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnChatParticipantsRetrievedListener> chatParticipantsRetrievedListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnConnectionFailureListener> connectionFailureListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnStatusUpdateListener> statusUpdateListeners = Collections.synchronizedList(new ArrayList<>());
+
+    // Store the OnFileTransferListener specifically for the current media transfer
+    // This is a temporary listener for a specific operation, not a general one.
+    private volatile OnFileTransferListener currentFileTransferListener;
 
     /**
      * Private constructor to prevent direct instantiation.
      * Initializes network connections and starts a listener thread.
-     * Note: Connection is established immediately upon instantiation.
      */
     private ChatClient() {
-        // No scanner here, as input is handled by JavaFX UI
+        // Attempt initial connection. Errors are dispatched via listeners.
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
             out = new PrintWriter(socket.getOutputStream(), true);
             in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            if (listener != null) listener.onStatusUpdate("Connected to chat server on main port.");
-            else System.out.println("Connected to chat server on main port."); // Fallback for no listener
+            notifyStatusUpdate("Connected to chat server on main port.");
 
             new Thread(this::listenForServerMessages, "ServerListener").start();
 
         } catch (IOException e) {
-            String errorMsg = "Error connecting to server: " + e.getMessage();
-            if (listener != null) listener.onError(errorMsg);
-            else System.err.println(errorMsg); // Fallback for no listener
-            // In a real JavaFX app, you might show an alert and exit gracefully
-            // System.exit(1); // Removed for better JavaFX integration, let UI handle
+            notifyConnectionFailure("Error connecting to server: " + e.getMessage());
+            // In a real JavaFX app, you might show an alert and handle graceful shutdown
+            // System.exit(1); // Removed for better JavaFX integration
         }
     }
 
@@ -91,19 +110,139 @@ public class ChatClient implements AutoCloseable {
         return instance;
     }
 
-    /**
-     * Sets the listener for receiving updates from the ChatClient.
-     * This method should be called by the JavaFX controller or main application class.
-     * @param listener The implementation of ChatClientListener.
-     */
-    public void setListener(ChatClientListener listener) {
-        this.listener = listener;
+    // --- Listener Registration Methods ---
+
+    public void addOnCommandResponseListener(OnCommandResponseListener listener) {
+        commandResponseListeners.add(listener);
     }
+    public void removeOnCommandResponseListener(OnCommandResponseListener listener) {
+        commandResponseListeners.remove(listener);
+    }
+
+    public void addOnNewMessageListener(OnNewMessageListener listener) {
+        newMessageListeners.add(listener);
+    }
+    public void removeOnNewMessageListener(OnNewMessageListener listener) {
+        newMessageListeners.remove(listener);
+    }
+
+    public void addOnLoginSuccessListener(OnLoginSuccessListener listener) {
+        loginSuccessListeners.add(listener);
+    }
+    public void removeOnLoginSuccessListener(OnLoginSuccessListener listener) {
+        loginSuccessListeners.remove(listener);
+    }
+
+    public void addOnMessagesRetrievedListener(OnMessagesRetrievedListener listener) {
+        messagesRetrievedListeners.add(listener);
+    }
+    public void removeOnMessagesRetrievedListener(OnMessagesRetrievedListener listener) {
+        messagesRetrievedListeners.remove(listener);
+    }
+
+    public void addOnAllUsersRetrievedListener(OnAllUsersRetrievedListener listener) {
+        allUsersRetrievedListeners.add(listener);
+    }
+    public void removeOnAllUsersRetrievedListener(OnAllUsersRetrievedListener listener) {
+        allUsersRetrievedListeners.remove(listener);
+    }
+
+    public void addOnUserChatsRetrievedListener(OnUserChatsRetrievedListener listener) {
+        userChatsRetrievedListeners.add(listener);
+    }
+    public void removeOnUserChatsRetrievedListener(OnUserChatsRetrievedListener listener) {
+        userChatsRetrievedListeners.remove(listener);
+    }
+
+    public void addOnContactsRetrievedListener(OnContactsRetrievedListener listener) {
+        contactsRetrievedListeners.add(listener);
+    }
+    public void removeOnContactsRetrievedListener(OnContactsRetrievedListener listener) {
+        contactsRetrievedListeners.remove(listener);
+    }
+
+    public void addOnNotificationsRetrievedListener(OnNotificationsRetrievedListener listener) {
+        notificationsRetrievedListeners.add(listener);
+    }
+    public void removeOnNotificationsRetrievedListener(OnNotificationsRetrievedListener listener) {
+        notificationsRetrievedListeners.remove(listener);
+    }
+
+    public void addOnChatParticipantsRetrievedListener(OnChatParticipantsRetrievedListener listener) {
+        chatParticipantsRetrievedListeners.add(listener);
+    }
+    public void removeOnChatParticipantsRetrievedListener(OnChatParticipantsRetrievedListener listener) {
+        chatParticipantsRetrievedListeners.remove(listener);
+    }
+
+    public void addOnConnectionFailureListener(OnConnectionFailureListener listener) {
+        connectionFailureListeners.add(listener);
+    }
+    public void removeOnConnectionFailureListener(OnConnectionFailureListener listener) {
+        connectionFailureListeners.remove(listener);
+    }
+
+    public void addOnStatusUpdateListener(OnStatusUpdateListener listener) {
+        statusUpdateListeners.add(listener);
+    }
+    public void removeOnStatusUpdateListener(OnStatusUpdateListener listener) {
+        statusUpdateListeners.remove(listener);
+    }
+
+    // --- Internal Notification Helpers ---
+
+    private void notifyCommandResponse(Response response) {
+        commandResponseListeners.forEach(l -> l.onCommandResponse(response));
+    }
+
+    private void notifyNewMessageReceived(Message message) {
+        newMessageListeners.forEach(l -> l.onNewMessageReceived(message));
+    }
+
+    private void notifyLoginSuccess(User user) {
+        loginSuccessListeners.forEach(l -> l.onLoginSuccess(user));
+    }
+
+    private void notifyMessagesRetrieved(List<Message> messages, int chatId) {
+        messagesRetrievedListeners.forEach(l -> l.onMessagesRetrieved(messages, chatId));
+    }
+
+    private void notifyAllUsersRetrieved(List<User> users) {
+        allUsersRetrievedListeners.forEach(l -> l.onAllUsersRetrieved(users));
+    }
+
+    private void notifyUserChatsRetrieved(List<Chat> chats) {
+        userChatsRetrievedListeners.forEach(l -> l.onUserChatsRetrieved(chats));
+    }
+
+    private void notifyContactsRetrieved(List<User> contacts) {
+        contactsRetrievedListeners.forEach(l -> l.onContactsRetrieved(contacts));
+    }
+
+    private void notifyNotificationsRetrieved(List<Notification> notifications) {
+        notificationsRetrievedListeners.forEach(l -> l.onNotificationsRetrieved(notifications));
+    }
+
+    private void notifyChatParticipantsRetrieved(List<ChatParticipant> participants, int chatId) {
+        chatParticipantsRetrievedListeners.forEach(l -> l.onChatParticipantsRetrieved(participants, chatId));
+    }
+
+    private void notifyConnectionFailure(String errorMessage) {
+        connectionFailureListeners.forEach(l -> l.onConnectionFailure(errorMessage));
+        System.err.println("[Connection Failure]: " + errorMessage); // Fallback to console for critical errors
+    }
+
+    private void notifyStatusUpdate(String status) {
+        statusUpdateListeners.forEach(l -> l.onStatusUpdate(status));
+        System.out.println("[Status Update]: " + status); // Fallback to console for general status
+    }
+
+    // --- Core Listener Thread ---
 
     /**
      * Listens for incoming messages from the server and processes them.
-     * Responses are added to a queue for the main thread to process or
-     * dispatched directly to the listener for new messages.
+     * Dispatches unsolicited messages to listeners and puts command responses
+     * into a queue for the calling thread.
      */
     private void listenForServerMessages() {
         try {
@@ -112,18 +251,21 @@ public class ChatClient implements AutoCloseable {
                 Response response = gson.fromJson(serverResponseJson, Response.class);
                 // System.out.println("[DEBUG - Raw Server Response]: " + serverResponseJson); // Debugging can stay
 
-                // Special handling for file transfer initiation
+                // Special handling for file transfer initiation (server tells client to send file)
                 if ("READY_TO_RECEIVE_FILE".equals(response.getMessage())) {
-                    if (listener != null) listener.onStatusUpdate("Server is ready for file transfer. Initiating file send...");
+                    notifyStatusUpdate("Server is ready for file transfer. Initiating file send...");
                     Type type = new TypeToken<Map<String, String>>() {}.getType();
                     Map<String, String> data = gson.fromJson(response.getData(), type);
-
                     pendingFileTransferId = data.get("transfer_id");
 
                     if (pendingFileTransferId != null) {
-                        sendFileBytes(currentFilePathToSend, pendingFileTransferId);
+                        // This must be called with the specific listener provided by the sendMediaMessage caller
+                        sendFileBytes(currentFilePathToSend, pendingFileTransferId, currentFileTransferListener);
                     } else {
-                        if (listener != null) listener.onError("Error: Server responded READY_TO_RECEIVE_FILE but no transfer_id found in data.");
+                        if (currentFileTransferListener != null) {
+                            currentFileTransferListener.onFail("Error: Server responded READY_TO_RECEIVE_FILE but no transfer_id found in data.");
+                        }
+                        notifyConnectionFailure("Server responded READY_TO_RECEIVE_FILE but no transfer_id found in data.");
                     }
                     continue; // Do not put this into the main response queue
                 }
@@ -131,24 +273,19 @@ public class ChatClient implements AutoCloseable {
                 // Handle unsolicited new messages (e.g., from other users)
                 if (response.isSuccess() && "New message received".equals(response.getMessage())) {
                     Message newMessage = gson.fromJson(response.getData(), Message.class);
-                    if (listener != null) {
-                        listener.onNewMessageReceived(newMessage);
-                    }
+                    notifyNewMessageReceived(newMessage);
                 }
-                // Handle general success/failure messages for commands that don't need special parsing
+                // All other responses are put into the queue for the specific command method that sent the request
                 else {
-                    responseQueue.put(response); // Put all other responses in the queue for the caller
+                    responseQueue.put(response);
                 }
             }
         } catch (SocketException e) {
-            if (listener != null) listener.onError("Server connection lost: " + e.getMessage());
-            else System.err.println("Server connection lost: " + e.getMessage());
+            notifyConnectionFailure("Server connection lost: " + e.getMessage());
         } catch (IOException e) {
-            if (listener != null) listener.onError("Error reading from server: " + e.getMessage());
-            else System.err.println("Error reading from server: " + e.getMessage());
+            notifyConnectionFailure("Error reading from server: " + e.getMessage());
         } catch (InterruptedException e) {
-            if (listener != null) listener.onError("Listener thread interrupted: " + e.getMessage());
-            else System.err.println("Listener thread interrupted: " + e.getMessage());
+            notifyConnectionFailure("Listener thread interrupted: " + e.getMessage());
             Thread.currentThread().interrupt();
         } finally {
             closeConnection();
@@ -156,29 +293,12 @@ public class ChatClient implements AutoCloseable {
     }
 
     /**
-     * Initiates the client connection. In a JavaFX app, this might be called
-     * on application startup or when a "Connect" button is pressed.
-     */
-    public void connect() {
-        // The constructor already attempts connection. This method can be used
-        // to re-establish if connection was lost, or as a conceptual "start".
-        // For simplicity, we assume the constructor handles the initial connection.
-        if (socket == null || socket.isClosed()) {
-            // Re-attempt connection if needed, though current constructor behavior
-            // means a new instance would be needed or specific reconnection logic.
-            // For now, assume the initial connection in constructor is sufficient.
-            if (listener != null) listener.onStatusUpdate("Client already connected or attempting reconnection...");
-        } else {
-            if (listener != null) listener.onStatusUpdate("Client is already connected.");
-        }
-    }
-
-    /**
      * Attempts to log in a user.
      * @param phoneNumber The user's phone number.
      * @param password The user's password.
+     * @return The server's Response object.
      */
-    public void login(String phoneNumber, String password) {
+    public Response login(String phoneNumber, String password) {
         Map<String, Object> authData = new HashMap<>();
         authData.put("phone_number", phoneNumber);
         authData.put("password", password);
@@ -188,13 +308,12 @@ public class ChatClient implements AutoCloseable {
 
         if (loginResponse != null && loginResponse.isSuccess()) {
             this.currentUser = gson.fromJson(loginResponse.getData(), User.class);
-            if (listener != null) {
-                listener.onLoginSuccess(currentUser);
-                listener.onStatusUpdate("Logged in as: " + currentUser.getPhoneNumber() + " (" + currentUser.getFirstName() + " " + currentUser.getLastName() + ")");
-            }
+            notifyLoginSuccess(currentUser);
+            notifyStatusUpdate("Logged in as: " + currentUser.getPhoneNumber() + " (" + currentUser.getFirstName() + " " + currentUser.getLastName() + ")");
         } else if (loginResponse != null) {
-            if (listener != null) listener.onCommandResponse(loginResponse);
+            notifyCommandResponse(loginResponse); // Notify other listeners about failed login
         }
+        return loginResponse;
     }
 
     /**
@@ -203,8 +322,9 @@ public class ChatClient implements AutoCloseable {
      * @param password The new user's password.
      * @param firstName The new user's first name.
      * @param lastName The new user's last name.
+     * @return The server's Response object.
      */
-    public void register(String phoneNumber, String password, String firstName, String lastName) {
+    public Response register(String phoneNumber, String password, String firstName, String lastName) {
         Map<String, Object> authData = new HashMap<>();
         authData.put("phone_number", phoneNumber);
         authData.put("password", password);
@@ -213,56 +333,86 @@ public class ChatClient implements AutoCloseable {
 
         Request registerRequest = new Request(Command.REGISTER, authData);
         Response registerResponse = sendRequestAndAwaitResponse(registerRequest);
-
-        if (listener != null) listener.onCommandResponse(registerResponse);
+        notifyCommandResponse(registerResponse); // Notify listeners about registration outcome
+        return registerResponse;
     }
 
     /**
-     * Sends a message, either text or media.
-     * @param chatId The ID of the chat to send the message to.
-     * @param content The text content of the message (can be null for media-only).
-     * @param filePath The local file path for media messages (null for text messages).
-     * @param caption The caption for media messages (can be null).
-     * @param mediaType The type of media (e.g., "image", "video", "voiceNote", "file").
+     * Sends a text message to a chat.
+     * @param chatId The ID of the chat.
+     * @param content The text content of the message.
+     * @return The server's Response object.
      */
-    public void sendMessage(int chatId, String content, String filePath, String caption, String mediaType) {
+    public Response sendTextMessage(int chatId, String content) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to send messages.");
-            return;
+            return new Response(false, "Authentication required to send messages.", null);
+        }
+        if (content == null || content.trim().isEmpty()) {
+            return new Response(false, "Text message content cannot be empty.", null);
         }
 
         Map<String, Object> data = new HashMap<>();
         data.put("chat_id", chatId);
+        data.put("content", content);
 
-        if (filePath != null && !filePath.isEmpty()) {
-            File file = new File(filePath);
-            if (!file.exists() || !file.isFile()) {
-                if (listener != null) listener.onError("Error: File not found or is not a regular file at " + filePath);
-                return;
-            }
-            currentFilePathToSend = filePath;
-            long fileSize = file.length();
-            String fileName = file.getName();
+        Request request = new Request(Command.SEND_MESSAGE, data);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response); // Notify listeners about message send outcome
+        return response;
+    }
 
-            Media media = new Media();
-            media.setFileName(fileName);
-            media.setFileSize(fileSize);
-            media.setMediaType(mediaType);
-            media.setUploadedByUserId(currentUser.getId());
-            media.setUploadedAt(LocalDateTime.now());
-
-            data.put("content", (caption != null && !caption.isEmpty()) ? caption : null);
-            data.put("media", media);
-            sendRequestAndProcessResponse(new Request(Command.SEND_MESSAGE, data));
-
-        } else { // Text message
-            if (content == null || content.trim().isEmpty()) {
-                if (listener != null) listener.onError("Text message content cannot be empty.");
-                return;
-            }
-            data.put("content", content);
-            sendRequestAndProcessResponse(new Request(Command.SEND_MESSAGE, data));
+    /**
+     * Sends a media message to a chat.
+     * This method initiates the media transfer process.
+     * @param chatId The ID of the chat.
+     * @param filePath The local file path for the media.
+     * @param caption The caption for the media message (can be null).
+     * @param mediaType The type of media (e.g., "image", "video", "voiceNote", "file").
+     * @param fileTransferListener A specific listener for this file transfer's progress/completion.
+     * @return The server's Response object for the initial message request.
+     */
+    public Response sendMediaMessage(int chatId, String filePath, String caption, String mediaType, OnFileTransferListener fileTransferListener) {
+        if (currentUser == null) {
+            return new Response(false, "Authentication required to send media messages.", null);
         }
+        if (filePath == null || filePath.isEmpty()) {
+            return new Response(false, "File path cannot be empty for media message.", null);
+        }
+
+        File file = new File(filePath);
+        if (!file.exists() || !file.isFile()) {
+            String errorMsg = "Error: File not found or is not a regular file at " + filePath;
+            if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+            return new Response(false, errorMsg, null);
+        }
+
+        // Store the file path and the specific listener for the upcoming file transfer
+        this.currentFilePathToSend = filePath;
+        this.currentFileTransferListener = fileTransferListener; // Set the specific listener for this transfer
+
+        long fileSize = file.length();
+        String fileName = file.getName();
+
+        Media media = new Media();
+        media.setFileName(fileName);
+        media.setFileSize(fileSize);
+        media.setMediaType(mediaType);
+        media.setUploadedByUserId(currentUser.getId());
+        media.setUploadedAt(LocalDateTime.now());
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("chat_id", chatId);
+        data.put("content", (caption != null && !caption.isEmpty()) ? caption : null);
+        data.put("media", media);
+
+        Request request = new Request(Command.SEND_MESSAGE, data);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response); // Notify general listeners about message send outcome
+
+        // Important: currentFileTransferListener will be used by listenForServerMessages
+        // when it receives "READY_TO_RECEIVE_FILE" and calls sendFileBytes.
+        // It's reset inside sendFileBytes's finally block or after successful transfer.
+        return response;
     }
 
     /**
@@ -270,11 +420,11 @@ public class ChatClient implements AutoCloseable {
      * @param chatId The ID of the chat.
      * @param limit The maximum number of messages to fetch.
      * @param offset The starting point (offset) for fetching messages.
+     * @return The server's Response object.
      */
-    public void getChatMessages(int chatId, int limit, int offset) {
+    public Response getChatMessages(int chatId, int limit, int offset) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to get messages.");
-            return;
+            return new Response(false, "Authentication required to get messages.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("chat_id", chatId);
@@ -287,10 +437,11 @@ public class ChatClient implements AutoCloseable {
         if (messagesResponse != null && messagesResponse.isSuccess() && "Messages retrieved.".equals(messagesResponse.getMessage())) {
             Type messageListType = new TypeToken<List<Message>>() {}.getType();
             List<Message> messages = gson.fromJson(messagesResponse.getData(), messageListType);
-            if (listener != null) listener.onMessagesRetrieved(messages, chatId);
+            notifyMessagesRetrieved(messages, chatId); // Notify dedicated listener
         } else if (messagesResponse != null) {
-            if (listener != null) listener.onCommandResponse(messagesResponse);
+            notifyCommandResponse(messagesResponse); // Notify general listeners about failure
         }
+        return messagesResponse;
     }
 
     /**
@@ -299,11 +450,11 @@ public class ChatClient implements AutoCloseable {
      * @param chatName The name of the chat (optional for private).
      * @param chatDescription The description of the chat (optional).
      * @param publicLink The public link for public channels (optional).
+     * @return The server's Response object.
      */
-    public void createChat(String chatType, String chatName, String chatDescription, String publicLink) {
+    public Response createChat(String chatType, String chatName, String chatDescription, String publicLink) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to create chats.");
-            return;
+            return new Response(false, "Authentication required to create chats.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("chat_type", chatType);
@@ -311,35 +462,39 @@ public class ChatClient implements AutoCloseable {
         data.put("chat_description", chatDescription != null && !chatDescription.isEmpty() ? chatDescription : null);
         data.put("public_link", publicLink != null && !publicLink.isEmpty() ? publicLink : null);
 
-        sendRequestAndProcessResponse(new Request(Command.CREATE_CHAT, data));
+        Request request = new Request(Command.CREATE_CHAT, data);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Retrieves all registered users.
+     * @return The server's Response object.
      */
-    public void getAllUsers() {
+    public Response getAllUsers() {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to get all users.");
-            return;
+            return new Response(false, "Authentication required to get all users.", null);
         }
         Request request = new Request(Command.GET_ALL_USERS);
         Response allUsersResponse = sendRequestAndAwaitResponse(request);
         if (allUsersResponse != null && allUsersResponse.isSuccess() && "All users retrieved.".equals(allUsersResponse.getMessage())) {
             Type userListType = new TypeToken<List<User>>() {}.getType();
             List<User> users = gson.fromJson(allUsersResponse.getData(), userListType);
-            if (listener != null) listener.onAllUsersRetrieved(users);
+            notifyAllUsersRetrieved(users); // Notify dedicated listener
         } else if (allUsersResponse != null) {
-            if (listener != null) listener.onCommandResponse(allUsersResponse);
+            notifyCommandResponse(allUsersResponse);
         }
+        return allUsersResponse;
     }
 
     /**
      * Retrieves the current user's chats.
+     * @return The server's Response object.
      */
-    public void getUserChats() {
+    public Response getUserChats() {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to get your chats.");
-            return;
+            return new Response(false, "Authentication required to get your chats.", null);
         }
         Request request = new Request(Command.GET_USER_CHATS);
         Response response = sendRequestAndAwaitResponse(request);
@@ -347,10 +502,11 @@ public class ChatClient implements AutoCloseable {
         if (response != null && response.isSuccess() && "All chats retrieved for user.".equals(response.getMessage())) {
             Type chatListType = new TypeToken<List<Chat>>() {}.getType();
             List<Chat> chats = gson.fromJson(response.getData(), chatListType);
-            if (listener != null) listener.onUserChatsRetrieved(chats);
+            notifyUserChatsRetrieved(chats); // Notify dedicated listener
         } else if (response != null) {
-            if (listener != null) listener.onCommandResponse(response);
+            notifyCommandResponse(response);
         }
+        return response;
     }
 
     /**
@@ -358,11 +514,11 @@ public class ChatClient implements AutoCloseable {
      * @param chatId The ID of the chat.
      * @param userId The ID of the user to add.
      * @param role The role of the participant (e.g., member, admin).
+     * @return The server's Response object.
      */
-    public void addChatParticipant(int chatId, int userId, String role) {
+    public Response addChatParticipant(int chatId, int userId, String role) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to manage chat participants.");
-            return;
+            return new Response(false, "Authentication required to manage chat participants.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("chat_id", chatId);
@@ -370,17 +526,19 @@ public class ChatClient implements AutoCloseable {
         data.put("role", role);
 
         Request request = new Request(Command.ADD_CHAT_PARTICIPANT, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Retrieves participants of a specific chat.
      * @param chatId The ID of the chat.
+     * @return The server's Response object.
      */
-    public void getChatParticipants(int chatId) {
+    public Response getChatParticipants(int chatId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to get chat participants.");
-            return;
+            return new Response(false, "Authentication required to get chat participants.", null);
         }
         Map<String, Object> params = new HashMap<>();
         params.put("chat_id", chatId);
@@ -388,12 +546,13 @@ public class ChatClient implements AutoCloseable {
         Response response = sendRequestAndAwaitResponse(request);
 
         if (response != null && response.isSuccess()) {
-            Type participantListType = new TypeToken<List<orgs.model.ChatParticipant>>() {}.getType();
-            List<orgs.model.ChatParticipant> participants = gson.fromJson(response.getData(), participantListType);
-            if (listener != null) listener.onChatParticipantsRetrieved(participants, chatId);
+            Type participantListType = new TypeToken<List<ChatParticipant>>() {}.getType();
+            List<ChatParticipant> participants = gson.fromJson(response.getData(), participantListType);
+            notifyChatParticipantsRetrieved(participants, chatId); // Notify dedicated listener
         } else if (response != null) {
-            if (listener != null) listener.onCommandResponse(response);
+            notifyCommandResponse(response);
         }
+        return response;
     }
 
     /**
@@ -401,11 +560,11 @@ public class ChatClient implements AutoCloseable {
      * @param chatId The ID of the chat.
      * @param userId The ID of the participant.
      * @param newRole The new role.
+     * @return The server's Response object.
      */
-    public void updateChatParticipantRole(int chatId, int userId, String newRole) {
+    public Response updateChatParticipantRole(int chatId, int userId, String newRole) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to update participant roles.");
-            return;
+            return new Response(false, "Authentication required to update participant roles.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("chat_id", chatId);
@@ -413,234 +572,259 @@ public class ChatClient implements AutoCloseable {
         data.put("new_role", newRole);
 
         Request request = new Request(Command.UPDATE_CHAT_PARTICIPANT_ROLE, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Removes a participant from a chat.
      * @param chatId The ID of the chat.
      * @param userId The ID of the participant to remove.
+     * @return The server's Response object.
      */
-    public void removeChatParticipant(int chatId, int userId) {
+    public Response removeChatParticipant(int chatId, int userId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to remove participants.");
-            return;
+            return new Response(false, "Authentication required to remove participants.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("chat_id", chatId);
         data.put("user_id", userId);
 
         Request request = new Request(Command.REMOVE_CHAT_PARTICIPANT, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Adds a user to the current user's contacts.
      * @param contactUserId The ID of the user to add as a contact.
+     * @return The server's Response object.
      */
-    public void addContact(int contactUserId) {
+    public Response addContact(int contactUserId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to add contacts.");
-            return;
+            return new Response(false, "Authentication required to add contacts.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("contact_user_id", contactUserId);
         Request request = new Request(Command.ADD_CONTACT, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Retrieves the current user's contacts.
+     * @return The server's Response object.
      */
-    public void getContacts() {
+    public Response getContacts() {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to get contacts.");
-            return;
+            return new Response(false, "Authentication required to get contacts.", null);
         }
         Request request = new Request(Command.GET_CONTACTS);
         Response response = sendRequestAndAwaitResponse(request);
         if (response != null && response.isSuccess() && "User contacts retrieved.".equals(response.getMessage())) {
             Type contactListType = new TypeToken<List<User>>() {}.getType();
             List<User> contacts = gson.fromJson(response.getData(), contactListType);
-            if (listener != null) listener.onContactsRetrieved(contacts);
+            notifyContactsRetrieved(contacts); // Notify dedicated listener
         } else if (response != null) {
-            if (listener != null) listener.onCommandResponse(response);
+            notifyCommandResponse(response);
         }
+        return response;
     }
 
     /**
      * Removes a user from the current user's contacts.
      * @param contactUserId The ID of the contact to remove.
+     * @return The server's Response object.
      */
-    public void removeContact(int contactUserId) {
+    public Response removeContact(int contactUserId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to remove contacts.");
-            return;
+            return new Response(false, "Authentication required to remove contacts.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("contact_user_id", contactUserId);
         Request request = new Request(Command.REMOVE_CONTACT, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Blocks or unblocks a target user.
      * @param targetUserId The ID of the user to block/unblock.
      * @param action The action ("block" or "unblock").
+     * @return The server's Response object.
      */
-    public void blockUnblockUser(int targetUserId, String action) {
+    public Response blockUnblockUser(int targetUserId, String action) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to block/unblock users.");
-            return;
+            return new Response(false, "Authentication required to block/unblock users.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("target_user_id", targetUserId);
         data.put("action", action);
 
         Request request = new Request(Command.BLOCK_UNBLOCK_USER, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Retrieves the current user's notifications.
+     * @return The server's Response object.
      */
-    public void getNotifications() {
+    public Response getNotifications() {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to get notifications.");
-            return;
+            return new Response(false, "Authentication required to get notifications.", null);
         }
         Request request = new Request(Command.MY_NOTIFICATIONS);
         Response response = sendRequestAndAwaitResponse(request);
 
         if (response != null && response.isSuccess() && "User notifications retrieved.".equals(response.getMessage())) {
-            Type notificationListType = new TypeToken<List<orgs.model.Notification>>() {}.getType();
-            List<orgs.model.Notification> notifications = gson.fromJson(response.getData(), notificationListType);
-            if (listener != null) listener.onNotificationsRetrieved(notifications);
+            Type notificationListType = new TypeToken<List<Notification>>() {}.getType();
+            List<Notification> notifications = gson.fromJson(response.getData(), notificationListType);
+            notifyNotificationsRetrieved(notifications); // Notify dedicated listener
         } else if (response != null) {
-            if (listener != null) listener.onCommandResponse(response);
+            notifyCommandResponse(response);
         }
+        return response;
     }
 
     /**
      * Marks a specific notification as read.
      * @param notificationId The ID of the notification to mark as read.
+     * @return The server's Response object.
      */
-    public void markNotificationAsRead(int notificationId) {
+    public Response markNotificationAsRead(int notificationId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to mark notifications as read.");
-            return;
+            return new Response(false, "Authentication required to mark notifications as read.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("notification_id", notificationId);
         Request request = new Request(Command.MARK_NOTIFICATION_AS_READ, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Deletes a specific notification.
      * @param notificationId The ID of the notification to delete.
+     * @return The server's Response object.
      */
-    public void deleteNotification(int notificationId) {
+    public Response deleteNotification(int notificationId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to delete notifications.");
-            return;
+            return new Response(false, "Authentication required to delete notifications.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("notification_id", notificationId);
         Request request = new Request(Command.DELETE_NOTIFICATION, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Updates the content of a message.
      * @param messageId The ID of the message to update.
      * @param newContent The new content for the message.
+     * @return The server's Response object.
      */
-    public void updateMessage(int messageId, String newContent) {
+    public Response updateMessage(int messageId, String newContent) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to update messages.");
-            return;
+            return new Response(false, "Authentication required to update messages.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("message_id", messageId);
         data.put("new_content", newContent);
         Request request = new Request(Command.UPDATE_MESSAGE, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Deletes a message.
      * @param messageId The ID of the message to delete.
+     * @return The server's Response object.
      */
-    public void deleteMessage(int messageId) {
+    public Response deleteMessage(int messageId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to delete messages.");
-            return;
+            return new Response(false, "Authentication required to delete messages.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("message_id", messageId);
         Request request = new Request(Command.DELETE_MESSAGE, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Marks a message as read.
      * @param messageId The ID of the message to mark as read.
+     * @return The server's Response object.
      */
-    public void markMessageAsRead(int messageId) {
+    public Response markMessageAsRead(int messageId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to mark messages as read.");
-            return;
+            return new Response(false, "Authentication required to mark messages as read.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("message_id", messageId);
         data.put("user_id", currentUser.getId());
         Request request = new Request(Command.MARK_MESSAGE_AS_READ, data);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Deletes a chat.
      * @param chatId The ID of the chat to delete.
+     * @return The server's Response object.
      */
-    public void deleteChat(int chatId) {
+    public Response deleteChat(int chatId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to delete chats.");
-            return;
+            return new Response(false, "Authentication required to delete chats.", null);
         }
         Map<String, Object> params = new HashMap<>();
         params.put("chatId", chatId);
         Request request = new Request(Command.DELETE_CHAT, params);
-        sendRequestAndProcessResponse(request);
+        Response response = sendRequestAndAwaitResponse(request);
+        notifyCommandResponse(response);
+        return response;
     }
 
     /**
      * Logs out the current user.
+     * @return The server's Response object.
      */
-    public void logout() {
+    public Response logout() {
         if (currentUser == null) {
-            if (listener != null) listener.onStatusUpdate("Not currently logged in.");
-            return;
+            return new Response(true, "Not currently logged in.", null);
         }
         Request request = new Request(Command.LOGOUT);
         Response logoutResponse = sendRequestAndAwaitResponse(request);
         if (logoutResponse != null && logoutResponse.isSuccess()) {
             currentUser = null;
-            if (listener != null) listener.onStatusUpdate(logoutResponse.getMessage());
+            notifyStatusUpdate(logoutResponse.getMessage());
         } else if (logoutResponse != null) {
-            if (listener != null) listener.onCommandResponse(logoutResponse);
+            notifyCommandResponse(logoutResponse);
         }
+        return logoutResponse;
     }
 
     /**
      * Retrieves unread messages after a specific message ID in a chat.
      * @param chatId The ID of the chat.
      * @param lastMessageId The ID of the last message read.
+     * @return The server's Response object.
      */
-    public void getUnreadMessagesAfterId(int chatId, int lastMessageId) {
+    public Response getUnreadMessagesAfterId(int chatId, int lastMessageId) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to get unread messages.");
-            return;
+            return new Response(false, "Authentication required to get unread messages.", null);
         }
         Map<String, Object> data = new HashMap<>();
         data.put("chat_id", chatId);
@@ -651,50 +835,12 @@ public class ChatClient implements AutoCloseable {
         if (unreadMessagesResponse != null && unreadMessagesResponse.isSuccess() && "Messages retrieved.".equals(unreadMessagesResponse.getMessage())) {
             Type messageListType = new TypeToken<List<Message>>() {}.getType();
             List<Message> messages = gson.fromJson(unreadMessagesResponse.getData(), messageListType);
-            if (listener != null) listener.onMessagesRetrieved(messages, chatId); // Reusing onMessagesRetrieved
+            notifyMessagesRetrieved(messages, chatId); // Reuse messages retrieved listener
         } else if (unreadMessagesResponse != null) {
-            if (listener != null) listener.onCommandResponse(unreadMessagesResponse);
+            notifyCommandResponse(unreadMessagesResponse);
         }
+        return unreadMessagesResponse;
     }
-
-
-    /**
-     * Sends a request to the server and processes the immediate response message.
-     * This is a helper for commands that don't need special parsing of the response data
-     * beyond checking success and displaying the message. It also handles clearing
-     * file transfer details after a successful media message send.
-     *
-     * @param request The Request object to send.
-     */
-    private void sendRequestAndProcessResponse(Request request) {
-        // Call the core method that sends the request and waits for a response
-        Response response = sendRequestAndAwaitResponse(request);
-
-        // Check if a response was received
-        if (response != null) {
-            // Report the server's response message to the registered listener (JavaFX UI)
-            if (listener != null) {
-                listener.onCommandResponse(response); // Provides the full response object
-            }
-
-            // Special handling for successful message sends, especially for media
-            if (response.isSuccess() && "Message sent successfully!".equals(response.getMessage()) && currentFilePathToSend != null) {
-                // If a file was just sent, clear the temporary file transfer details
-                if (listener != null) {
-                    listener.onStatusUpdate("File transfer details cleared after successful message send.");
-                }
-                currentFilePathToSend = null; // Reset the path of the file that was pending to send
-                pendingFileTransferId = null; // Reset the transfer ID
-            }
-        } else {
-            // This case should ideally be handled by sendRequestAndAwaitResponse reporting a timeout,
-            // but as a fallback, ensure the listener is informed if somehow null is returned.
-            if (listener != null) {
-                listener.onError("No response received for command: " + request.getCommand() + ". Check server connection.");
-            }
-        }
-    }
-
 
     /**
      * Sends a request to the server and waits for a response from the response queue.
@@ -705,57 +851,37 @@ public class ChatClient implements AutoCloseable {
      */
     private Response sendRequestAndAwaitResponse(Request request) {
         try {
-            // Clear any stale responses from the queue before sending a new request
-            responseQueue.clear();
-
-            // Convert the request object to JSON and send it to the server
+            responseQueue.clear(); // Clear any stale responses
             out.println(gson.toJson(request));
+            Response response = responseQueue.poll(30, TimeUnit.SECONDS); // 30-second timeout
 
-            // Poll the response queue, waiting for up to 30 seconds for a response
-            Response response = responseQueue.poll(30, TimeUnit.SECONDS);
-
-            // If no response is received within the timeout period
             if (response == null) {
                 String errorMsg = "No response from server within timeout for command: " + request.getCommand();
-                // Report the timeout error to the listener
-                if (listener != null) {
-                    listener.onError(errorMsg);
-                }
-                // Return a failure response indicating a timeout
+                notifyConnectionFailure(errorMsg); // Use specific connection failure listener
                 return new Response(false, "Server response timed out.", null);
             }
-            // Return the received response
             return response;
         } catch (InterruptedException e) {
-            // Handle cases where the thread waiting for a response is interrupted
             String errorMsg = "Waiting for response interrupted: " + e.getMessage();
-            if (listener != null) {
-                listener.onError(errorMsg);
-            }
-            // Re-interrupt the current thread
+            notifyConnectionFailure(errorMsg);
             Thread.currentThread().interrupt();
-            // Return a failure response indicating client interruption
             return new Response(false, "Client interrupted.", null);
         }
     }
+
     /**
      * Sends file bytes to the file transfer server.
+     * This method is called internally by the listener thread when the server is ready.
      * @param filePath The path to the file to send.
      * @param transferId The transfer ID provided by the main server.
+     * @param fileTransferListener The specific listener for this transfer.
      */
-    private void sendFileBytes(String filePath, String transferId) {
-        if (filePath == null || filePath.isEmpty()) {
-            if (listener != null) listener.onError("No file path provided for transfer.");
-            return;
-        }
-        if (transferId == null || transferId.isEmpty()) {
-            if (listener != null) listener.onError("No transfer ID provided by server for file transfer.");
-            return;
-        }
-
+    private void sendFileBytes(String filePath, String transferId, OnFileTransferListener fileTransferListener) {
         File file = new File(filePath);
         if (!file.exists() || !file.isFile()) {
-            if (listener != null) listener.onError("File not found or is not a regular file: " + filePath);
+            String errorMsg = "File not found or is not a regular file: " + filePath;
+            if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+            notifyConnectionFailure(errorMsg);
             return;
         }
 
@@ -764,38 +890,47 @@ public class ChatClient implements AutoCloseable {
              BufferedReader serverResponseReader = new BufferedReader(new InputStreamReader(fileSocket.getInputStream()));
              FileInputStream fis = new FileInputStream(file)) {
 
-            if (listener != null) listener.onStatusUpdate("Connecting to file transfer server on port " + FILE_TRANSFER_PORT + "...");
-
+            notifyStatusUpdate("Connecting to file transfer server on port " + FILE_TRANSFER_PORT + " for sending...");
             PrintWriter socketWriter = new PrintWriter(os, true);
             socketWriter.println(transferId);
-            if (listener != null) listener.onStatusUpdate("Sent transferId: " + transferId + " to file server.");
+            notifyStatusUpdate("Sent transferId: " + transferId + " to file server.");
 
             byte[] buffer = new byte[4096];
             int bytesRead;
             long totalBytesSent = 0;
             long fileSize = file.length();
 
-            if (listener != null) listener.onStatusUpdate("Sending file: " + file.getName() + " (" + fileSize + " bytes)");
+            notifyStatusUpdate("Sending file: " + file.getName() + " (" + fileSize + " bytes)");
 
             while ((bytesRead = fis.read(buffer)) != -1) {
                 os.write(buffer, 0, bytesRead);
                 totalBytesSent += bytesRead;
-                // Optional: Notify UI about progress
-                // if (listener != null) listener.onStatusUpdate("Sent: " + totalBytesSent + " / " + fileSize + " bytes");
+                if (fileTransferListener != null) {
+                    fileTransferListener.onProgress(totalBytesSent, fileSize);
+                }
             }
             os.flush();
 
-            if (listener != null) listener.onStatusUpdate("File '" + file.getName() + "' sent successfully!");
-
             String fileTransferStatus = serverResponseReader.readLine();
-            if (fileTransferStatus != null) {
-                if (listener != null) listener.onStatusUpdate("File server response: " + fileTransferStatus);
+            if (fileTransferStatus != null && fileTransferStatus.equals("FILE_RECEIVED_SUCCESS")) {
+                if (fileTransferListener != null) fileTransferListener.onComplete(file);
+                notifyStatusUpdate("File '" + file.getName() + "' sent successfully!");
+            } else {
+                String errorMsg = "File server reported failure or unexpected response: " + fileTransferStatus;
+                if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+                notifyConnectionFailure(errorMsg);
             }
 
         } catch (IOException e) {
-            if (listener != null) listener.onError("Error during file transfer: " + e.getMessage());
-            else System.err.println("Error during file transfer: " + e.getMessage());
+            String errorMsg = "Error during file send transfer: " + e.getMessage();
+            if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+            notifyConnectionFailure(errorMsg);
             e.printStackTrace();
+        } finally {
+            // Reset the temporary listener and file path after the transfer attempt
+            this.currentFileTransferListener = null;
+            this.currentFilePathToSend = null;
+            this.pendingFileTransferId = null;
         }
     }
 
@@ -803,16 +938,22 @@ public class ChatClient implements AutoCloseable {
      * Requests and receives a media file from the server.
      * @param media The Media object containing details of the file to download.
      * @param saveDirectory The directory where the file should be saved.
+     * @param fileTransferListener A specific listener for this file transfer's progress/completion.
+     * @return The server's Response object for the initial request to get the file.
      */
-    public void getFileByMedia(Media media, String saveDirectory) {
+    public Response getFileByMedia(Media media, String saveDirectory, OnFileTransferListener fileTransferListener) {
         if (currentUser == null) {
-            if (listener != null) listener.onError("Authentication required to download files.");
-            return;
+            return new Response(false, "Authentication required to download files.", null);
         }
         if (media == null || media.getId() == 0 || media.getFileName() == null || media.getFileName().isEmpty()) {
-            if (listener != null) listener.onError("Error: Invalid media object. Missing mediaId or fileName.");
-            return;
+            String errorMsg = "Error: Invalid media object. Missing mediaId or fileName.";
+            if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+            return new Response(false, errorMsg, null);
         }
+
+        // Set the specific listener for this download operation
+        this.currentFileTransferListener = fileTransferListener;
+
         try {
             Map<String, Object> data = new HashMap<>();
             data.put("mediaId", media.getId());
@@ -824,8 +965,10 @@ public class ChatClient implements AutoCloseable {
             Response response = responseQueue.poll(30, TimeUnit.SECONDS);
 
             if (response == null) {
-                if (listener != null) listener.onError("Server response timed out for file download request.");
-                return;
+                String errorMsg = "Server response timed out for file download request.";
+                if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+                notifyConnectionFailure(errorMsg);
+                return new Response(false, errorMsg, null);
             }
 
             if (response.isSuccess() && "READY_TO_SEND_FILE".equals(response.getMessage())) {
@@ -834,17 +977,25 @@ public class ChatClient implements AutoCloseable {
                 String transferId = (String) responseData.get("transfer_id");
                 long fileSize = ((Double) responseData.get("fileSize")).longValue();
 
-                if (listener != null) listener.onStatusUpdate("Server is ready to send the file. Initiating download...");
-                receiveFileBytes(transferId, media.getFileName(), fileSize, saveDirectory);
+                notifyStatusUpdate("Server is ready to send the file. Initiating download...");
+                receiveFileBytes(transferId, media.getFileName(), fileSize, saveDirectory, fileTransferListener);
 
             } else {
-                if (listener != null) listener.onError("Server failed to initiate file download: " + response.getMessage());
+                String errorMsg = "Server failed to initiate file download: " + response.getMessage();
+                if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+                notifyCommandResponse(response); // Notify general listeners about the failure
             }
+            return response;
 
         } catch (Exception e) {
-            if (listener != null) listener.onError("Error during file download process: " + e.getMessage());
-            else System.err.println("Error during file download process: " + e.getMessage());
+            String errorMsg = "Error during file download process: " + e.getMessage();
+            if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+            notifyConnectionFailure(errorMsg);
             e.printStackTrace();
+            return new Response(false, errorMsg, null);
+        } finally {
+            // Reset the temporary listener after the download request is processed
+            this.currentFileTransferListener = null;
         }
     }
 
@@ -854,53 +1005,61 @@ public class ChatClient implements AutoCloseable {
      * @param fileName The name of the file to save.
      * @param fileSize The expected size of the file.
      * @param saveDirectory The directory where the file should be saved.
+     * @param fileTransferListener The specific listener for this transfer.
      */
-    private void receiveFileBytes(String transferId, String fileName, long fileSize, String saveDirectory) {
+    private void receiveFileBytes(String transferId, String fileName, long fileSize, String saveDirectory, OnFileTransferListener fileTransferListener) {
+        File outputFile = new File(saveDirectory, fileName);
         try {
             File saveDir = new File(saveDirectory);
             if (!saveDir.exists()) {
                 saveDir.mkdirs();
             }
-            File outputFile = new File(saveDir, fileName);
 
             try (Socket fileSocket = new Socket(SERVER_IP, FILE_TRANSFER_PORT);
                  InputStream is = fileSocket.getInputStream();
                  OutputStream os = fileSocket.getOutputStream(); // For sending transferId
                  FileOutputStream fos = new FileOutputStream(outputFile)) {
 
-                if (listener != null) listener.onStatusUpdate("Connecting to file transfer server for download...");
+                notifyStatusUpdate("Connecting to file transfer server for download...");
                 PrintWriter socketWriter = new PrintWriter(os, true);
 
                 // Send the transfer ID to the file server to identify the file
                 socketWriter.println(transferId);
-                if (listener != null) listener.onStatusUpdate("Sent transferId: " + transferId + " to file server for download.");
+                notifyStatusUpdate("Sent transferId: " + transferId + " to file server for download.");
 
                 byte[] buffer = new byte[4096];
                 int bytesRead;
                 long totalBytesReceived = 0;
 
-                if (listener != null) listener.onStatusUpdate("Receiving file: " + fileName + " (" + fileSize + " bytes)");
+                notifyStatusUpdate("Receiving file: " + fileName + " (" + fileSize + " bytes)");
 
                 while (totalBytesReceived < fileSize && (bytesRead = is.read(buffer, 0, (int) Math.min(buffer.length, fileSize - totalBytesReceived))) != -1) {
                     fos.write(buffer, 0, bytesRead);
                     totalBytesReceived += bytesRead;
-                    // Optional: Notify UI about progress
-                    // if (listener != null) listener.onStatusUpdate("Received: " + totalBytesReceived + " / " + fileSize + " bytes");
+                    if (fileTransferListener != null) {
+                        fileTransferListener.onProgress(totalBytesReceived, fileSize);
+                    }
                 }
                 fos.flush();
 
                 if (totalBytesReceived == fileSize) {
-                    if (listener != null) listener.onFileDownloaded(outputFile.getAbsolutePath());
-                    if (listener != null) listener.onStatusUpdate("File '" + fileName + "' received successfully and saved to " + outputFile.getAbsolutePath());
+                    if (fileTransferListener != null) fileTransferListener.onComplete(outputFile);
+                    notifyStatusUpdate("File '" + fileName + "' received successfully and saved to " + outputFile.getAbsolutePath());
                 } else {
-                    if (listener != null) listener.onError("File transfer incomplete. Expected: " + fileSize + ", Received: " + totalBytesReceived);
+                    String errorMsg = "File transfer incomplete. Expected: " + fileSize + ", Received: " + totalBytesReceived;
+                    if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+                    notifyConnectionFailure(errorMsg);
                     outputFile.delete(); // Clean up incomplete file
                 }
             }
         } catch (IOException e) {
-            if (listener != null) listener.onError("Error during file download: " + e.getMessage());
-            else System.err.println("Error during file download: " + e.getMessage());
+            String errorMsg = "Error during file download: " + e.getMessage();
+            if (fileTransferListener != null) fileTransferListener.onFail(errorMsg);
+            notifyConnectionFailure(errorMsg);
             e.printStackTrace();
+        } finally {
+            // Reset the temporary listener after the transfer attempt
+            this.currentFileTransferListener = null;
         }
     }
 
@@ -927,97 +1086,68 @@ public class ChatClient implements AutoCloseable {
             if (in != null) {
                 in.close();
             }
-            // Scanner is removed, so no need to close it here
-            if (listener != null) listener.onStatusUpdate("Client connection closed.");
-            else System.out.println("Client connection closed.");
+            notifyStatusUpdate("Client connection closed.");
         } catch (IOException e) {
-            if (listener != null) listener.onError("Error closing client resources: " + e.getMessage());
-            else System.err.println("Error closing client resources: " + e.getMessage());
+            notifyConnectionFailure("Error closing client resources: " + e.getMessage());
         }
     }
 
     /**
      * Main method for demonstration purposes.
-     * In a real JavaFX application, you would typically initialize and set the listener
+     * In a real JavaFX application, you would typically initialize and register listeners
      * within your Application's start method or a controller.
      */
     public static void main(String[] args) {
         ChatClient client = ChatClient.getInstance();
 
-        // Example of setting a simple listener (can be your JavaFX controller)
-        client.setListener(new ChatClientListener() {
-            @Override
-            public void onNewMessageReceived(Message message) {
-                System.out.println("[Listener] New Message: " + message.getContent() + " from " + message.getSenderId());
-            }
+        // Example of adding listeners (these would be your JavaFX controller methods)
+        client.addOnCommandResponseListener(response ->
+                System.out.println("[CMD_RESP] Success=" + response.isSuccess() + ", Msg=" + response.getMessage()));
+        client.addOnNewMessageListener(message ->
+                System.out.println("[NEW_MSG] From " + message.getSenderId() + ": " + message.getContent()));
+        client.addOnLoginSuccessListener(user ->
+                System.out.println("[LOGIN_SUCCESS] Logged in as: " + user.getPhoneNumber()));
+        client.addOnConnectionFailureListener(error ->
+                System.err.println("[CONN_FAIL] " + error));
+        client.addOnStatusUpdateListener(status ->
+                System.out.println("[STATUS] " + status));
+        client.addOnMessagesRetrievedListener((messages, chatId) ->
+                System.out.println("[MSGS_RETRIEVED] Chat " + chatId + ": " + messages.size() + " messages."));
+        // Add other listeners as needed for testing
 
-            @Override
-            public void onCommandResponse(Response response) {
-                System.out.println("[Listener] Command Response: Success=" + response.isSuccess() + ", Message=" + response.getMessage());
-            }
+        // Example usage (these calls would be triggered by JavaFX UI actions on background threads)
+        // new Thread(() -> {
+        //     Response loginResponse = client.login("your_phone_number", "your_password");
+        //     if (loginResponse.isSuccess()) {
+        //         // Now send a text message
+        //         client.sendTextMessage(1, "Hello from new JavaFX client!");
+        //
+        //         // Now send a media message with a specific file transfer listener
+        //         // Replace with an actual file path on your system
+        //         String testFilePath = "C:/path/to/your/test_image.jpg";
+        //         client.sendMediaMessage(1, testFilePath, "My test image", "image", new OnFileTransferListener() {
+        //             @Override
+        //             public void onFail(String msg) {
+        //                 System.err.println("[FILE_TRANSFER_FAIL] " + msg);
+        //             }
+        //
+        //             @Override
+        //             public void onProgress(long transferredBytes, long totalSize) {
+        //                 System.out.println(String.format("[FILE_TRANSFER_PROGRESS] %d/%d bytes", transferredBytes, totalSize));
+        //             }
+        //
+        //             @Override
+        //             public void onComplete(File file) {
+        //                 System.out.println("[FILE_TRANSFER_COMPLETE] File sent: " + file.getAbsolutePath());
+        //             }
+        //         });
+        //     }
+        // }).start();
 
-            @Override
-            public void onStatusUpdate(String status) {
-                System.out.println("[Listener] Status: " + status);
-            }
 
-            @Override
-            public void onError(String error) {
-                System.err.println("[Listener] ERROR: " + error);
-            }
-
-            @Override
-            public void onLoginSuccess(User user) {
-                System.out.println("[Listener] Login Successful for: " + user.getPhoneNumber());
-            }
-
-            @Override
-            public void onMessagesRetrieved(List<Message> messages, int chatId) {
-                System.out.println("[Listener] Messages Retrieved for Chat ID " + chatId + ": " + messages.size() + " messages.");
-                messages.forEach(msg -> System.out.println("  - " + msg.getContent()));
-            }
-
-            @Override
-            public void onAllUsersRetrieved(List<User> users) {
-                System.out.println("[Listener] All Users Retrieved: " + users.size() + " users.");
-            }
-
-            @Override
-            public void onUserChatsRetrieved(List<Chat> chats) {
-                System.out.println("[Listener] User Chats Retrieved: " + chats.size() + " chats.");
-            }
-
-            @Override
-            public void onFileDownloaded(String filePath) {
-                System.out.println("[Listener] File Downloaded to: " + filePath);
-            }
-
-            @Override
-            public void onContactsRetrieved(List<User> contacts) {
-                System.out.println("[Listener] Contacts Retrieved: " + contacts.size() + " contacts.");
-            }
-
-            @Override
-            public void onNotificationsRetrieved(List<orgs.model.Notification> notifications) {
-                System.out.println("[Listener] Notifications Retrieved: " + notifications.size() + " notifications.");
-            }
-
-            @Override
-            public void onChatParticipantsRetrieved(List<orgs.model.ChatParticipant> participants, int chatId) {
-                System.out.println("[Listener] Participants Retrieved for Chat ID " + chatId + ": " + participants.size() + " participants.");
-            }
-        });
-
-        // Example usage (would be triggered by JavaFX UI actions)
-        // client.login("your_phone_number", "your_password");
-        // client.sendMessage(1, "Hello from JavaFX!", null, null, null);
-        // client.getChatMessages(1, 10, 0);
-
-        // Keep the main thread alive for the listener thread to run,
-        // in a JavaFX app, the JavaFX Application thread would keep it alive.
+        // Keep the main thread alive for the listener thread to run.
+        // In a JavaFX app, the JavaFX Application thread would keep it alive.
         try {
-            // In a real JavaFX app, the application thread manages lifecycle.
-            // For a standalone test, you might want to keep it running for a bit.
             Thread.sleep(60000); // Keep alive for 60 seconds for demonstration
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

@@ -52,6 +52,10 @@ public enum Command {
     MARK_NOTIFICATION_AS_READ,
     DELETE_NOTIFICATION,
 
+    GET_USER_BY_ID,
+    GET_CHAT_BY_PHONENUMBER ,
+    GET_CHAT_BY_ID,
+
     // Video Call Management
     INITIATE_VIDEO_CALL,    // Client A to Server: "I want to call User B"
     VIDEO_CALL_OFFER,       // Server to Client B: "User A is calling you"
