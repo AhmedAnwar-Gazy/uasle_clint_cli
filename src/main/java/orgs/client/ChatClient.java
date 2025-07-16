@@ -127,7 +127,10 @@ public class ChatClient implements AutoCloseable {
                                 "Message marked as read!".equals(response.getMessage()) ||
                                 "Notification marked as read!".equals(response.getMessage()) ||
                                 "Notification deleted successfully!".equals(response.getMessage()) ||
-                                "Logged out successfully.".equals(response.getMessage())
+                                "Logged out successfully.".equals(response.getMessage()) ||
+                                "User retrieved by id.".equals(response.getMessage()) ||
+                                "Chats retrieved by id.".equals(response.getMessage()) ||
+                                "Chats retrieved by phone number.".equals(response.getMessage())
                 )) {
                     responseQueue.put(response);
                 }
@@ -1009,14 +1012,14 @@ public class ChatClient implements AutoCloseable {
             }.getType();
             Chat chat = gson.fromJson(response.getData(), chatType);
             System.out.println("\n--- The Chat ---");
-            System.out.println(chat.toString());
+            System.out.println(chat.getChatName());
         }
     }
 
     private void getUserByPhoneNumber(String getUserPhoneNumber) {
         Map<String, Object> data = new HashMap<>();
         data.put("chat_phone_number", getUserPhoneNumber);
-        Request request = new Request(Command.GET_CHAT_BY_PHONENUMBER,data);
+        Request request = new Request(Command.GET_USER_BY_PHONENUMBER,data);
         Response response = sendRequestAndAwaitResponse(request);
 
         if (response != null && response.isSuccess() && "Chats retrieved by phone number.".equals(response.getMessage())) {
@@ -1024,7 +1027,7 @@ public class ChatClient implements AutoCloseable {
             }.getType();
             User user = gson.fromJson(response.getData(), userType);
             System.out.println("\n--- The user ---");
-            System.out.println(user.toString());
+            System.out.println(user.getFirstName());
         }
     }
     private void getUserById(int getUserId) {
@@ -1033,12 +1036,12 @@ public class ChatClient implements AutoCloseable {
         Request request = new Request(Command.GET_CHAT_BY_ID,data);
         Response response = sendRequestAndAwaitResponse(request);
 
-        if (response != null && response.isSuccess() && "User retrieved by id..".equals(response.getMessage())) {
+        if (response != null && response.isSuccess() && "User retrieved by id.".equals(response.getMessage())) {
             Type userType = new TypeToken<User>() {
             }.getType();
             User user = gson.fromJson(response.getData(), userType);
             System.out.println("\n--- The user ---");
-            System.out.println(user.toString());
+            System.out.println(user.getFirstName());
         }
     }
 

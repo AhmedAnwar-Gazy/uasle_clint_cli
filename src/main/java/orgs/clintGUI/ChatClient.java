@@ -1,6 +1,5 @@
 package orgs.clintGUI;
 
-import orgs.clintGUI.*;
 import orgs.model.Message;
 import orgs.model.User;
 import orgs.model.Chat;
@@ -28,7 +27,6 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer; // For generic listener registration
 
 /**
  * ChatClient class implemented as a Singleton for use in a JavaFX application.
@@ -73,6 +71,9 @@ public class ChatClient implements AutoCloseable {
     private final List<OnChatParticipantsRetrievedListener> chatParticipantsRetrievedListeners = Collections.synchronizedList(new ArrayList<>());
     private final List<OnConnectionFailureListener> connectionFailureListeners = Collections.synchronizedList(new ArrayList<>());
     private final List<OnStatusUpdateListener> statusUpdateListeners = Collections.synchronizedList(new ArrayList<>());
+    private final List<OnChatRetrievedListener> chatRetrievedListeners = Collections.synchronizedList(new ArrayList<>()); // New listener list
+    private final List<OnUserRetrievedListener> userRetrievedListeners = Collections.synchronizedList(new ArrayList<>()); // New listener list
+
 
     // Store the OnFileTransferListener specifically for the current media transfer
     // This is a temporary listener for a specific operation, not a general one.
@@ -189,6 +190,21 @@ public class ChatClient implements AutoCloseable {
         statusUpdateListeners.remove(listener);
     }
 
+    public void addOnChatRetrievedListener(OnChatRetrievedListener listener) { // New listener registration
+        chatRetrievedListeners.add(listener);
+    }
+    public void removeOnChatRetrievedListener(OnChatRetrievedListener listener) { // New listener removal
+        chatRetrievedListeners.remove(listener);
+    }
+
+    public void addOnUserRetrievedListener(OnUserRetrievedListener listener) { // New listener registration
+        userRetrievedListeners.add(listener);
+    }
+    public void removeOnUserRetrievedListener(OnUserRetrievedListener listener) { // New listener removal
+        userRetrievedListeners.remove(listener);
+    }
+
+
     // --- Internal Notification Helpers ---
 
     private void notifyCommandResponse(Response response) {
@@ -235,6 +251,14 @@ public class ChatClient implements AutoCloseable {
     private void notifyStatusUpdate(String status) {
         statusUpdateListeners.forEach(l -> l.onStatusUpdate(status));
         System.out.println("[Status Update]: " + status); // Fallback to console for general status
+    }
+
+    private void notifyChatRetrieved(Chat chat) { // New notification helper
+        chatRetrievedListeners.forEach(l -> l.onChatRetrieved(chat));
+    }
+
+    private void notifyUserRetrieved(User user) { // New notification helper
+        userRetrievedListeners.forEach(l -> l.onUserRetrieved(user));
     }
 
     // --- Core Listener Thread ---
@@ -843,6 +867,82 @@ public class ChatClient implements AutoCloseable {
     }
 
     /**
+     * Retrieves a chat by its ID.
+     * @param chatId The ID of the chat to retrieve.
+     * @return The server's Response object.
+     */
+    public Response getChatById(int chatId) {
+        if (currentUser == null) {
+            return new Response(false, "Authentication required to get chat by ID.", null);
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("chat_id", chatId);
+        // Assuming Command.GET_CHAT_BY_ID exists in your Command enum
+        Request request = new Request(Command.GET_CHAT_BY_ID, data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "Chat retrieved by id.".equals(response.getMessage())) {
+            Type chatType = new TypeToken<Chat>() {}.getType();
+            Chat chat = gson.fromJson(response.getData(), chatType);
+            notifyChatRetrieved(chat); // Notify dedicated listener
+        } else if (response != null) {
+            notifyCommandResponse(response);
+        }
+        return response;
+    }
+
+    /**
+     * Retrieves a user by their phone number.
+     * @param phoneNumber The phone number of the user to retrieve.
+     * @return The server's Response object.
+     */
+    public Response getUserByPhoneNumber(String phoneNumber) {
+        if (currentUser == null) {
+            return new Response(false, "Authentication required to get user by phone number.", null);
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("phone_number", phoneNumber); // Corrected key to be consistent
+        // Assuming Command.GET_USER_BY_PHONENUMBER exists in your Command enum
+        Request request = new Request(Command.GET_USER_BY_PHONENUMBER, data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "User retrieved by phone number.".equals(response.getMessage())) {
+            Type userType = new TypeToken<User>() {}.getType();
+            User user = gson.fromJson(response.getData(), userType);
+            notifyUserRetrieved(user); // Notify dedicated listener
+        } else if (response != null) {
+            notifyCommandResponse(response);
+        }
+        return response;
+    }
+
+    /**
+     * Retrieves a user by their ID.
+     * @param userId The ID of the user to retrieve.
+     * @return The server's Response object.
+     */
+    public Response getUserById(int userId) {
+        if (currentUser == null) {
+            return new Response(false, "Authentication required to get user by ID.", null);
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("user_id", userId);
+        // Assuming Command.GET_USER_BY_ID exists in your Command enum
+        Request request = new Request(Command.GET_USER_BY_ID, data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "User retrieved by id.".equals(response.getMessage())) {
+            Type userType = new TypeToken<User>() {}.getType();
+            User user = gson.fromJson(response.getData(), userType);
+            notifyUserRetrieved(user); // Notify dedicated listener
+        } else if (response != null) {
+            notifyCommandResponse(response);
+        }
+        return response;
+    }
+
+
+    /**
      * Sends a request to the server and waits for a response from the response queue.
      * This is a core private helper method used by all public command methods.
      *
@@ -1113,34 +1213,25 @@ public class ChatClient implements AutoCloseable {
                 System.out.println("[STATUS] " + status));
         client.addOnMessagesRetrievedListener((messages, chatId) ->
                 System.out.println("[MSGS_RETRIEVED] Chat " + chatId + ": " + messages.size() + " messages."));
+        client.addOnChatRetrievedListener(chat ->
+                System.out.println("[CHAT_RETRIEVED] Chat Name: " + chat.getChatName() + ", ID: " + chat.getId()));
+        client.addOnUserRetrievedListener(user ->
+                System.out.println("[USER_RETRIEVED] User Name: " + user.getFirstName() + " " + user.getLastName() + ", Phone: " + user.getPhoneNumber()));
+
         // Add other listeners as needed for testing
 
         // Example usage (these calls would be triggered by JavaFX UI actions on background threads)
         // new Thread(() -> {
         //     Response loginResponse = client.login("your_phone_number", "your_password");
         //     if (loginResponse.isSuccess()) {
-        //         // Now send a text message
-        //         client.sendTextMessage(1, "Hello from new JavaFX client!");
+        //         // Now retrieve a chat by ID
+        //         client.getChatById(123); // Replace with a valid chat ID
         //
-        //         // Now send a media message with a specific file transfer listener
-        //         // Replace with an actual file path on your system
-        //         String testFilePath = "C:/path/to/your/test_image.jpg";
-        //         client.sendMediaMessage(1, testFilePath, "My test image", "image", new OnFileTransferListener() {
-        //             @Override
-        //             public void onFail(String msg) {
-        //                 System.err.println("[FILE_TRANSFER_FAIL] " + msg);
-        //             }
+        //         // Now retrieve a user by phone number
+        //         client.getUserByPhoneNumber("1234567890"); // Replace with a valid phone number
         //
-        //             @Override
-        //             public void onProgress(long transferredBytes, long totalSize) {
-        //                 System.out.println(String.format("[FILE_TRANSFER_PROGRESS] %d/%d bytes", transferredBytes, totalSize));
-        //             }
-        //
-        //             @Override
-        //             public void onComplete(File file) {
-        //                 System.out.println("[FILE_TRANSFER_COMPLETE] File sent: " + file.getAbsolutePath());
-        //             }
-        //         });
+        //         // Now retrieve a user by ID
+        //         client.getUserById(456); // Replace with a valid user ID
         //     }
         // }).start();
 

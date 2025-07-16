@@ -53,7 +53,7 @@ public enum Command {
     DELETE_NOTIFICATION,
 
     GET_USER_BY_ID,
-    GET_CHAT_BY_PHONENUMBER ,
+    GET_USER_BY_PHONENUMBER ,
     GET_CHAT_BY_ID,
 
     // Video Call Management
