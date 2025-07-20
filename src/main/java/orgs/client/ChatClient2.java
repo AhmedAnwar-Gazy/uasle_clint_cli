@@ -109,6 +109,7 @@ public class ChatClient2 implements AutoCloseable {
         try {
             String serverResponseJson;
             while ((serverResponseJson = in.readLine()) != null) {
+
                 Response response = gson.fromJson(serverResponseJson, Response.class);
                 System.out.println("[DEBUG - Raw Server Response]: " + serverResponseJson); // Added for debugging
 
@@ -131,13 +132,11 @@ public class ChatClient2 implements AutoCloseable {
                 System.out.println(" ---------- new masseg ");
 
 
-
-
                 //String commandcall = Command.valueOf(response.getMessage()).name(); // Assuming message string matches enum name
                 String commandcall = response.getMessage();
                 switch (commandcall) {
                     case "VIDEO_CALL_OFFER":
-                        System.out.println("yessssssssssssssss");
+
                         // This is the response from the server, notifying *this* client of an incoming call.
                         // The payload contains information about the caller.
                         Map<String, Object> offerData = gson.fromJson(response.getData(), new TypeToken<Map<String, Object>>(){}.getType());
@@ -154,7 +153,7 @@ public class ChatClient2 implements AutoCloseable {
                         final String finalCallerPublicIp = callerPublicIp;
                         final int finalCallerUdpPort = callerUdpPort;
                         final String finalCallerUsername = callerUsername; // For display in prompt
-
+                        System.out.println("yesssss 1");
                         SwingUtilities.invokeLater(() -> {
                             // Display a confirmation dialog to the user
                             int choice = JOptionPane.showConfirmDialog(
@@ -164,10 +163,11 @@ public class ChatClient2 implements AutoCloseable {
                                     JOptionPane.YES_NO_OPTION, // Buttons: Yes and No
                                     JOptionPane.QUESTION_MESSAGE // Icon: Question mark
                             );
-
+                            System.out.println("yesssss 2");
                             boolean acceptCall = (choice == JOptionPane.YES_OPTION);
 
                             try {
+                                System.out.println("yesssss 3");
                                 // Determine your client's own public IP for sending back to the server.
                                 // In a real-world scenario, you'd use a STUN client here to discover your actual public IP.
                                 // For a local network or simple demo, InetAddress.getLocalHost().getHostAddress() might work.
@@ -182,7 +182,8 @@ public class ChatClient2 implements AutoCloseable {
 
                                 // Send the response back to the server via the existing TCP connection
                                 // (Assumes 'sendRequest' is a method in ChatClient to send a Request object over TCP)
-                                out.println(new Request(Command.VIDEO_CALL_ANSWER, answerPayload));
+                                Request request = new Request(Command.VIDEO_CALL_ANSWER, answerPayload);
+                                out.println(gson.toJson(request));
 
                                 if (acceptCall) {
                                     // If the call is accepted, store the remote caller's IP and UDP port
@@ -1403,6 +1404,7 @@ public class ChatClient2 implements AutoCloseable {
 
     public static void main(String[] args) {
         try (ChatClient2 client = new ChatClient2()) {
+            System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
             client.startClient();
         } catch (Exception e) {
             System.err.println("Client application error: " + e.getMessage());

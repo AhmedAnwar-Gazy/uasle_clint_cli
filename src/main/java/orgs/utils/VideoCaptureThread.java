@@ -1,5 +1,7 @@
 package orgs.utils;
 
+import org.opencv.core.Core;
+
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
 import org.opencv.imgcodecs.Imgcodecs;
@@ -22,6 +24,7 @@ public class VideoCaptureThread extends Thread {
     private int frameId = 0; // Simple frame counter
 
     public VideoCaptureThread(DatagramSocket socket, InetAddress remoteIp, int remoteUdpPort) {
+        //System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
         this.udpSocket = socket;
         this.remoteIp = remoteIp;
         this.remoteUdpPort = remoteUdpPort;
@@ -93,4 +96,10 @@ public class VideoCaptureThread extends Thread {
             capture.release();
         }
     }
+
+//    public static void main(String[] args) {
+//        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+//        VideoCaptureThread videoCaptureThread =new VideoCaptureThread(null, null,1234);
+//
+//    }
 }
