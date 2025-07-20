@@ -43,15 +43,22 @@ public class VideoReceiverThread extends Thread {
 
     @Override
     public void run() {
+        System.out.println("the rsever thread is on "+ "\nrunning : "+running.get() +"\nis close : "+udpSocket.isClosed());
+        System.out.println("my ip : " + udpSocket.getLocalAddress().getHostAddress()+ " \nmy port" + udpSocket.getPort());
         byte[] buffer = new byte[65507]; // Max UDP packet size
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-
+        int reseved = 0 ;
         while (running.get() && !udpSocket.isClosed()) {
-            try {
-                udpSocket.receive(packet);
+            System.out.println("******   resved "+ (++reseved)) ;
 
+            try {
+                System.out.println("good 1");
+                udpSocket.receive(packet);
+                System.out.println("good 1.1");
                 ByteBuffer bBuffer = ByteBuffer.wrap(packet.getData(), 0, packet.getLength());
+                System.out.println("good 1.2");
                 if (bBuffer.remaining() >= 12) { // Ensure header exists (frameId, fragIndex, totalFrags)
+                    System.out.println("good 2");
                     int currentFrameId = bBuffer.getInt();
                     int fragmentIndex = bBuffer.getInt();
                     int totalFragments = bBuffer.getInt();
@@ -66,7 +73,7 @@ public class VideoReceiverThread extends Thread {
                     // Check if all fragments for the current frame are received
                     if (frameBuffer.containsKey(currentFrameId) &&
                             frameBuffer.get(currentFrameId).size() == frameMetadata.get(currentFrameId)) {
-
+                        System.out.println("good 2");
                         // Only process if it's the next expected frame or a more recent one
                         if (currentFrameId > lastDisplayedFrameId) {
                             // Reassemble the full frame

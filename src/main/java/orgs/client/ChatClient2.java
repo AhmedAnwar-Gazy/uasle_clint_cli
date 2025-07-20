@@ -163,11 +163,9 @@ public class ChatClient2 implements AutoCloseable {
                                     JOptionPane.YES_NO_OPTION, // Buttons: Yes and No
                                     JOptionPane.QUESTION_MESSAGE // Icon: Question mark
                             );
-                            System.out.println("yesssss 2");
                             boolean acceptCall = (choice == JOptionPane.YES_OPTION);
 
                             try {
-                                System.out.println("yesssss 3");
                                 // Determine your client's own public IP for sending back to the server.
                                 // In a real-world scenario, you'd use a STUN client here to discover your actual public IP.
                                 // For a local network or simple demo, InetAddress.getLocalHost().getHostAddress() might work.

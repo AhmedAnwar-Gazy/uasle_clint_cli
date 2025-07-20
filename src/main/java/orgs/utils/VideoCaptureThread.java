@@ -44,6 +44,7 @@ public class VideoCaptureThread extends Thread {
 
     @Override
     public void run() {
+        System.out.println("the capter thread is on \n\n");
         Mat frame = new Mat();
         MatOfByte mob = new MatOfByte(); // Used for JPEG encoding
 
@@ -80,6 +81,7 @@ public class VideoCaptureThread extends Thread {
                     }
                 }
                 frameId++;
+                System.out.println("send :"+frameId);
             }
 
             try {
