@@ -8,8 +8,8 @@ import java.net.InetSocketAddress;
 
 // This is highly simplified and requires a STUN client library or manual STUN packet construction/parsing
 public class StunClient {
-    public static InetSocketAddress getPublicAddress(String stunServerHost, int stunServerPort, int localUdpPort) throws IOException {
-        try (DatagramSocket socket = new DatagramSocket(localUdpPort)) {
+    public static InetSocketAddress getPublicAddress(String stunServerHost, int stunServerPort, DatagramSocket socket) throws IOException {
+        try {
             socket.setSoTimeout(5000); // 5-second timeout
 
             // 1. Create a STUN Binding Request (very simplified, actual packet is more complex)
@@ -33,11 +33,13 @@ public class StunClient {
             System.out.println("STUN response received from: " + receivePacket.getAddress() + ":" + receivePacket.getPort());
             // In a real scenario, you'd extract the public IP/port from receivePacket.getData()
             return new InetSocketAddress(receivePacket.getAddress(), receivePacket.getPort()); // This would be the public address
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 }
-
-// In ChatClient2.java, initiateVideoCall:
+//
+//// In ChatClient2.java, initiateVideoCall:
 //public void initiateVideoCall(String targetUserId) {
 //    try {
 //        // ...
