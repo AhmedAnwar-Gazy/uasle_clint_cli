@@ -154,14 +154,17 @@ public class ChatClient3 implements AutoCloseable {
                                 // Determine your client's own public IP for sending back to the server.
                                 // In a real-world scenario, you'd use a STUN client here to discover your actual public IP.
                                 // For a local network or simple demo, InetAddress.getLocalHost().getHostAddress() might work.
-                                String myPublicIp = getPublicIpAddress(); // Use the new method to get public IP
+                                //String myPublicIp = getPublicIpAddress(); // Use the new method to get public IP
+                                InetSocketAddress publicAddress = getPublicAddress(udpSocket);
+                                String myPublicIp = publicAddress.getAddress().getHostAddress();
+                                int myPublicPort =publicAddress.getPort();
 
                                 // Prepare the payload for the VIDEO_CALL_ANSWER request
                                 Map<String, Object> answerPayload = new HashMap<>();
                                 answerPayload.put("caller_id", finalCallerId); // Send back who initiated the call
                                 answerPayload.put("accepted", acceptCall);
                                 answerPayload.put("recipient_public_ip", myPublicIp);
-                                answerPayload.put("recipient_udp_port", localUdpPort); // Your client's UDP port (initialized earlier)
+                                answerPayload.put("recipient_udp_port", myPublicPort); // Your client's UDP port (initialized earlier)
 
                                 // Send the response back to the server via the existing TCP connection
                                 // (Assumes 'sendRequest' is a method in ChatClient to send a Request object over TCP)
@@ -333,8 +336,6 @@ public class ChatClient3 implements AutoCloseable {
         } catch (InterruptedException e) {
             System.err.println("Listener thread interrupted: " + e.getMessage());
             Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         } finally {
             closeConnection();
         }
@@ -1283,9 +1284,8 @@ public class ChatClient3 implements AutoCloseable {
         //String myPublicIp = getPublicIpAddress();
         //String myPublicIp = InetAddress.getLocalHost().getHostAddress();
         InetSocketAddress publicAddress = getPublicAddress(udpSocket);
-        remoteIp = publicAddress.getAddress();
-        String myPublicIp = remoteIp.getHostAddress();
-        remoteUdpPort =  publicAddress.getPort();
+        String myPublicIp = publicAddress.getAddress().getHostAddress();
+        int myPublicPort =publicAddress.getPort();
 
         if (myPublicIp == null) {
             System.err.println("Could not determine public IP address. Cannot initiate video call.");
@@ -1296,7 +1296,7 @@ public class ChatClient3 implements AutoCloseable {
         Map<String, Object> payload = new HashMap<>();
         payload.put("target_user_id", targetUserId);
         payload.put("sender_public_ip", myPublicIp);
-        payload.put("sender_udp_port", remoteUdpPort);
+        payload.put("sender_udp_port", myPublicPort);
 
         sendRequestAndAwaitResponse(new Request(Command.INITIATE_VIDEO_CALL, payload));
         System.out.println("Video call initiation request sent to server for user: " + targetUserId + " with public IP: " + myPublicIp);
@@ -1327,13 +1327,8 @@ public class ChatClient3 implements AutoCloseable {
         }
     }
 
-    private void startVideoCallThreads() throws Exception {
-        InetSocketAddress publicAddress = getPublicAddress(udpSocket);
-        remoteIp = publicAddress.getAddress();
-        String myPublicIp = remoteIp.getHostAddress();
-        remoteUdpPort =  publicAddress.getPort();
-        System.out.println("$$$$$$$$$$$\nmy public ip : "+ myPublicIp+" and port "+ remoteUdpPort );
-        System.out.println("@@@@@ the port : " + udpSocket.getLocalPort() + "\n remoteIp: "+ remoteIp+ "\nremoteUdpPort : "+ remoteUdpPort);
+    private void startVideoCallThreads() {
+        System.out.println("@@@@@ the remot port : " + udpSocket.getLocalPort() + "\n remoteIp: "+ remoteIp+ "\nremoteUdpPort : "+ remoteUdpPort);
         if (videoCaptureThread == null || !videoCaptureThread.isAlive()) {
             videoCaptureThread = new VideoCaptureThread(udpSocket, remoteIp, remoteUdpPort);
             videoCaptureThread.start();
