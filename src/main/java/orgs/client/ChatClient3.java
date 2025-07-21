@@ -1279,8 +1279,10 @@ public class ChatClient3 implements AutoCloseable {
         //String myPublicIp = getPublicIpAddress();
         //String myPublicIp = InetAddress.getLocalHost().getHostAddress();
         InetSocketAddress publicAddress = getPublicAddress(udpSocket);
-        String myPublicIp = publicAddress.getAddress().getHostAddress();
-        int myPublicPort =  publicAddress.getPort();
+        remoteIp = publicAddress.getAddress();
+        String myPublicIp = remoteIp.getHostAddress();
+        remoteUdpPort =  publicAddress.getPort();
+        System.out.println("$$$$$$$$$$$\nmy public ip : "+ myPublicIp+" and port "+ remoteUdpPort );
         if (myPublicIp == null) {
             System.err.println("Could not determine public IP address. Cannot initiate video call.");
             return;
@@ -1290,7 +1292,7 @@ public class ChatClient3 implements AutoCloseable {
         Map<String, Object> payload = new HashMap<>();
         payload.put("target_user_id", targetUserId);
         payload.put("sender_public_ip", myPublicIp);
-        payload.put("sender_udp_port", myPublicPort);
+        payload.put("sender_udp_port", remoteUdpPort);
 
         sendRequestAndAwaitResponse(new Request(Command.INITIATE_VIDEO_CALL, payload));
         System.out.println("Video call initiation request sent to server for user: " + targetUserId + " with public IP: " + myPublicIp);
