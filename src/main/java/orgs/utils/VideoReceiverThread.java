@@ -11,6 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,7 +45,7 @@ public class VideoReceiverThread extends Thread {
     @Override
     public void run() {
         System.out.println("the rsever thread is on "+ "\nrunning : "+running.get() +"\nis close : "+udpSocket.isClosed());
-        System.out.println("my ip : " + udpSocket.getLocalAddress().getHostAddress()+ " \nmy port" + udpSocket.getPort());
+        System.out.println(" \nmy port" + udpSocket.getLocalPort());
         byte[] buffer = new byte[65507]; // Max UDP packet size
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
         int reseved = 0 ;
@@ -52,7 +53,9 @@ public class VideoReceiverThread extends Thread {
             System.out.println("******   resved "+ (++reseved)) ;
 
             try {
-                System.out.println("good 1");
+                String myPublicIp = InetAddress.getLocalHost().getHostAddress();
+                System.out.println("my ip : "+myPublicIp);
+                        System.out.println("good 1");
                 udpSocket.receive(packet);
                 System.out.println("good 1.1");
                 ByteBuffer bBuffer = ByteBuffer.wrap(packet.getData(), 0, packet.getLength());

@@ -153,7 +153,7 @@ public class ChatClient2 implements AutoCloseable {
                         final String finalCallerPublicIp = callerPublicIp;
                         final int finalCallerUdpPort = callerUdpPort;
                         final String finalCallerUsername = callerUsername; // For display in prompt
-                        System.out.println("yesssss 1");
+                        //System.out.println("yesssss 1");
                         SwingUtilities.invokeLater(() -> {
                             // Display a confirmation dialog to the user
                             int choice = JOptionPane.showConfirmDialog(
@@ -1325,6 +1325,7 @@ public class ChatClient2 implements AutoCloseable {
     }
 
     private void startVideoCallThreads() {
+        System.out.println("@@@@@ the port : " + udpSocket.getLocalPort() + "\n remoteIp: "+ remoteIp+ "\nremoteUdpPort : "+ remoteUdpPort);
         if (videoCaptureThread == null || !videoCaptureThread.isAlive()) {
             videoCaptureThread = new VideoCaptureThread(udpSocket, remoteIp, remoteUdpPort);
             videoCaptureThread.start();

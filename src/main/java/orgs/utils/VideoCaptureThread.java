@@ -85,7 +85,7 @@ public class VideoCaptureThread extends Thread {
             }
 
             try {
-                Thread.sleep(30); // ~33ms for ~30 FPS
+                Thread.sleep(66); // ~33ms for ~30 FPS
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 running.set(false);
