@@ -187,6 +187,8 @@ public class ChatClient3 implements AutoCloseable {
                             } catch (IOException e) {
                                 System.err.println("Error responding to video call offer: " + e.getMessage());
                                 e.printStackTrace();
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
                             }
                         });
                         break;
@@ -331,6 +333,8 @@ public class ChatClient3 implements AutoCloseable {
         } catch (InterruptedException e) {
             System.err.println("Listener thread interrupted: " + e.getMessage());
             Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         } finally {
             closeConnection();
         }
@@ -1282,7 +1286,7 @@ public class ChatClient3 implements AutoCloseable {
         remoteIp = publicAddress.getAddress();
         String myPublicIp = remoteIp.getHostAddress();
         remoteUdpPort =  publicAddress.getPort();
-        System.out.println("$$$$$$$$$$$\nmy public ip : "+ myPublicIp+" and port "+ remoteUdpPort );
+
         if (myPublicIp == null) {
             System.err.println("Could not determine public IP address. Cannot initiate video call.");
             return;
@@ -1323,7 +1327,12 @@ public class ChatClient3 implements AutoCloseable {
         }
     }
 
-    private void startVideoCallThreads() {
+    private void startVideoCallThreads() throws Exception {
+        InetSocketAddress publicAddress = getPublicAddress(udpSocket);
+        remoteIp = publicAddress.getAddress();
+        String myPublicIp = remoteIp.getHostAddress();
+        remoteUdpPort =  publicAddress.getPort();
+        System.out.println("$$$$$$$$$$$\nmy public ip : "+ myPublicIp+" and port "+ remoteUdpPort );
         System.out.println("@@@@@ the port : " + udpSocket.getLocalPort() + "\n remoteIp: "+ remoteIp+ "\nremoteUdpPort : "+ remoteUdpPort);
         if (videoCaptureThread == null || !videoCaptureThread.isAlive()) {
             videoCaptureThread = new VideoCaptureThread(udpSocket, remoteIp, remoteUdpPort);
