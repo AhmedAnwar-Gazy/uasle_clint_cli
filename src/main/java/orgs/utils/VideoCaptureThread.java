@@ -81,7 +81,7 @@ public class VideoCaptureThread extends Thread {
                     }
                 }
                 frameId++;
-                System.out.println("send :"+frameId);
+                System.out.println("send  to the port : "+remoteIp+ " on port : "+remoteUdpPort);
             }
 
             try {

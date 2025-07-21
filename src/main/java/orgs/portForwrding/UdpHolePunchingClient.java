@@ -1,32 +1,39 @@
-package orgs.portForwrding;
-
+package orgs.portForwrding ;
 import javax.swing.*;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.*;
 import java.util.Enumeration;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * UdpHolePunchingClient.java
- * This client demonstrates UDP hole punching.
+ * This client demonstrates UDP hole punching using a STATIC UDP port.
  * It connects to a signaling server (UdpHolePunchingServer), exchanges UDP endpoint information,
  * and then attempts to establish a direct UDP connection with another peer.
  *
+ * IMPORTANT: You MUST run each client instance on a DIFFERENT PHYSICAL MACHINE
+ * on the same local network for this static port example to work,
+ * as only one process can bind to a specific port at a time on a given IP address.
+ *
  * To run:
  * 1. Compile: javac UdpHolePunchingClient.java
- * 2. Run two instances: java UdpHolePunchingClient
- * (Ensure the UdpHolePunchingServer is running first)
+ * 2. Run two instances on DIFFERENT MACHINES: java UdpHolePunchingClient
+ * (Ensure the UdpHolePunchingServer is running first on one of the machines or a third machine)
  */
 public class UdpHolePunchingClient {
-    private static final String SERVER_IP = "192.168.1.99"; // IP of the signaling server
+    // Configuration for the Signaling Server
+    // CHANGE THIS to the actual local IP address of the machine running UdpHolePunchingServer
+    private static final String SERVER_IP = "192.168.1.99"; // Example: IP of the signaling server machine
     private static final int SERVER_PORT = 8888; // Port of the signaling server (TCP)
+
+    // Configuration for the Client's UDP Port
+    // Each client will attempt to bind to this specific UDP port.
+    // This means clients MUST be on different machines to avoid port conflicts.
+    private static final int STATIC_UDP_PORT = 60000;
 
     private DatagramSocket udpSocket;
     private InetAddress localUdpIp; // This client's local IPv4 address
-    private int localUdpPort;
+    private int localUdpPort; // This will now be STATIC_UDP_PORT
     private String publicIp; // This client's public IP
     private int publicPort; // This client's public port (as seen by the server)
 
@@ -41,7 +48,7 @@ public class UdpHolePunchingClient {
 
     public UdpHolePunchingClient() {
         // Initialize UI
-        frame = new JFrame("UDP Hole Punching Client");
+        frame = new JFrame("UDP Hole Punching Client (Static Port)");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setSize(600, 400);
         logArea = new JTextArea();
@@ -55,15 +62,17 @@ public class UdpHolePunchingClient {
 
     public void startClient() {
         try {
-            // 1. Initialize local UDP socket and get a suitable local IPv4 address
+            // 1. Initialize local UDP socket with the static port and a suitable local IPv4 address
             localUdpIp = getIPv4Address();
             if (localUdpIp == null) {
                 log("Failed to find a suitable local IPv4 address. Exiting.");
                 return;
             }
-            udpSocket = new DatagramSocket(0, localUdpIp); // Binds to any available port on the specified IP
-            localUdpPort = udpSocket.getLocalPort();
-            log("Local UDP endpoint: " + localUdpIp.getHostAddress() + ":" + localUdpPort);
+
+            // Attempt to bind to the STATIC_UDP_PORT
+            udpSocket = new DatagramSocket(STATIC_UDP_PORT, localUdpIp);
+            localUdpPort = udpSocket.getLocalPort(); // This will be STATIC_UDP_PORT if successful
+            log("Local UDP endpoint: " + localUdpIp.getHostAddress() + ":" + localUdpPort + " (Static Port)");
 
             // 2. Discover public IP address
             publicIp = getPublicIpAddress();
@@ -79,12 +88,9 @@ public class UdpHolePunchingClient {
                  BufferedReader in = new BufferedReader(new InputStreamReader(tcpSocket.getInputStream()));
                  PrintWriter out = new PrintWriter(tcpSocket.getOutputStream(), true)) {
 
-                // The server sees our public port as the source port of this TCP connection.
-                // We assume for simplicity that the public UDP port will be the same or close to this.
+                // For this demo, we assume the public UDP port will be the same as the local static UDP port.
                 // In a real STUN client, you'd send a UDP packet to the STUN server to get the mapped UDP port.
-                // For this demo, we'll just use the local UDP port and assume NAT will map it consistently.
-                // This is a simplification and might not work with all NAT types.
-                publicPort = localUdpPort; // Simplification for demo
+                publicPort = localUdpPort; // This will be STATIC_UDP_PORT
 
                 // Send our local and public UDP info to the server
                 String myUdpInfo = localUdpIp.getHostAddress() + ":" + localUdpPort + ":" + publicIp + ":" + publicPort;
@@ -154,6 +160,9 @@ public class UdpHolePunchingClient {
                 log("UDP hole punching failed. Could not establish direct connection.");
             }
 
+        } catch (SocketException e) {
+            log("Error binding to UDP port " + STATIC_UDP_PORT + ": " + e.getMessage() +
+                    ". Is the port already in use? Ensure clients are on different machines.");
         } catch (IOException e) {
             log("Client startup error: " + e.getMessage());
             e.printStackTrace();

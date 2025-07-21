@@ -1280,7 +1280,7 @@ public class ChatClient3 implements AutoCloseable {
     public void initiateVideoCall(String targetUserId) {
         // Get the client's public IP address
         String myPublicIp = getPublicIpAddress();
-
+        //String myPublicIp = InetAddress.getLocalHost().getHostAddress();
         if (myPublicIp == null) {
             System.err.println("Could not determine public IP address. Cannot initiate video call.");
             return;
@@ -1376,7 +1376,7 @@ public class ChatClient3 implements AutoCloseable {
         }
         try {
             // A small dummy packet to punch the hole
-            byte[] data = "UDP_HOLE_PUNCH START THE CALL YEEEEEEE".getBytes();
+            byte[] data = new byte[500];
             DatagramPacket packet = new DatagramPacket(data, data.length, remoteIp, remoteUdpPort);
             udpSocket.send(packet);
             System.out.println("Sent UDP punching packet to " + remoteIp.getHostAddress() + ":" + remoteUdpPort);

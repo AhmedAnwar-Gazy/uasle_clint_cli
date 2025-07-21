@@ -55,13 +55,9 @@ public class VideoReceiverThread extends Thread {
             try {
                 String myPublicIp = InetAddress.getLocalHost().getHostAddress();
                 System.out.println("my ip : "+myPublicIp);
-                        System.out.println("good 1");
                 udpSocket.receive(packet);
-                System.out.println("good 1.1");
                 ByteBuffer bBuffer = ByteBuffer.wrap(packet.getData(), 0, packet.getLength());
-                System.out.println("good 1.2");
                 if (bBuffer.remaining() >= 12) { // Ensure header exists (frameId, fragIndex, totalFrags)
-                    System.out.println("good 2");
                     int currentFrameId = bBuffer.getInt();
                     int fragmentIndex = bBuffer.getInt();
                     int totalFragments = bBuffer.getInt();
@@ -76,7 +72,7 @@ public class VideoReceiverThread extends Thread {
                     // Check if all fragments for the current frame are received
                     if (frameBuffer.containsKey(currentFrameId) &&
                             frameBuffer.get(currentFrameId).size() == frameMetadata.get(currentFrameId)) {
-                        System.out.println("good 2");
+
                         // Only process if it's the next expected frame or a more recent one
                         if (currentFrameId > lastDisplayedFrameId) {
                             // Reassemble the full frame
@@ -85,6 +81,7 @@ public class VideoReceiverThread extends Thread {
                                 displayFrame(fullFrameBytes);
                                 lastDisplayedFrameId = currentFrameId;
                             }
+                            System.out.println("receiv on ip : "+udpSocket.getLocalAddress().getHostName() +" and port"+ udpSocket.getLocalPort());
                         }
                         // Clean up processed frame data to prevent memory leak
                         frameBuffer.remove(currentFrameId);
