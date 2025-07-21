@@ -177,6 +177,7 @@ public class ChatClient3 implements AutoCloseable {
                                     remoteIp = InetAddress.getByName(finalCallerPublicIp);
                                     remoteUdpPort = finalCallerUdpPort;
 
+                                    sendUdpPunchingPacket(remoteIp, remoteUdpPort);
                                     // Start the video streaming threads (capture and receiver)
                                     // This method should handle initializing OpenCV components and threads.
                                     startVideoCallThreads();
@@ -210,6 +211,8 @@ public class ChatClient3 implements AutoCloseable {
                             break;
                         }
                         remoteUdpPort = calleeUdpPort;
+
+                        sendUdpPunchingPacket(remoteIp, remoteUdpPort);
                         startVideoCallThreads();
                         System.out.println("Call accepted by " + (String)acceptedData.get("callee_username") + ". Starting video stream.");
                         break;
@@ -1363,6 +1366,22 @@ public class ChatClient3 implements AutoCloseable {
             //payload.put("target_user_id", /* current remote user ID */); // Need to store this client-side
             out.println(new Request(Command.END_VIDEO_CALL, payload));
             System.out.println("Sent end call request.");
+        }
+    }
+
+    private void sendUdpPunchingPacket(InetAddress remoteIp, int remoteUdpPort) {
+        if (udpSocket == null || udpSocket.isClosed()) {
+            System.err.println("UDP socket is not initialized or is closed. Cannot send punching packet.");
+            return;
+        }
+        try {
+            // A small dummy packet to punch the hole
+            byte[] data = "UDP_HOLE_PUNCH START THE CALL YEEEEEEE".getBytes();
+            DatagramPacket packet = new DatagramPacket(data, data.length, remoteIp, remoteUdpPort);
+            udpSocket.send(packet);
+            System.out.println("Sent UDP punching packet to " + remoteIp.getHostAddress() + ":" + remoteUdpPort);
+        } catch (IOException e) {
+            System.err.println("Error sending UDP punching packet: " + e.getMessage());
         }
     }
 
