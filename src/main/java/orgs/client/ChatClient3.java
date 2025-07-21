@@ -14,8 +14,7 @@ import com.google.gson.reflect.TypeToken;
 
 import java.io.*;
 import java.lang.reflect.Type;
-import java.net.Socket;
-import java.net.SocketException;
+import java.net.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
@@ -37,14 +36,12 @@ import orgs.utils.VideoReceiverThread;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
 import java.net.SocketException;
-import java.net.UnknownHostException;
 import javax.imageio.ImageIO;
 import javax.swing.*; // For simple UI display
-import java.net.URL; // For fetching public IP
+
+import static orgs.utils.StunClient.getPublicAddress;
+
 
 public class ChatClient3 implements AutoCloseable {
     private static final String SERVER_IP = "192.168.1.99"; // Localhost
@@ -1277,10 +1274,13 @@ public class ChatClient3 implements AutoCloseable {
      * using an external service before sending the call initiation request.
      * @param targetUserId The ID of the user to call.
      */
-    public void initiateVideoCall(String targetUserId) {
+    public void initiateVideoCall(String targetUserId) throws Exception {
         // Get the client's public IP address
-        String myPublicIp = getPublicIpAddress();
+        //String myPublicIp = getPublicIpAddress();
         //String myPublicIp = InetAddress.getLocalHost().getHostAddress();
+        InetSocketAddress publicAddress = getPublicAddress(udpSocket);
+        String myPublicIp = publicAddress.getAddress().getHostAddress();
+        int myPublicPort =  publicAddress.getPort();
         if (myPublicIp == null) {
             System.err.println("Could not determine public IP address. Cannot initiate video call.");
             return;
@@ -1290,7 +1290,7 @@ public class ChatClient3 implements AutoCloseable {
         Map<String, Object> payload = new HashMap<>();
         payload.put("target_user_id", targetUserId);
         payload.put("sender_public_ip", myPublicIp);
-        payload.put("sender_udp_port", localUdpPort);
+        payload.put("sender_udp_port", myPublicPort);
 
         sendRequestAndAwaitResponse(new Request(Command.INITIATE_VIDEO_CALL, payload));
         System.out.println("Video call initiation request sent to server for user: " + targetUserId + " with public IP: " + myPublicIp);
