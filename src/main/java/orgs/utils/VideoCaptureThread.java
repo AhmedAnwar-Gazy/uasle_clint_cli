@@ -4,6 +4,7 @@ import org.opencv.core.Core;
 
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
+import org.opencv.core.MatOfInt;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.videoio.VideoCapture;
 
@@ -47,13 +48,14 @@ public class VideoCaptureThread extends Thread {
         System.out.println("the capter thread is on \n\n");
         Mat frame = new Mat();
         MatOfByte mob = new MatOfByte(); // Used for JPEG encoding
+        int quality = 20 ; //
 
         while (running.get() && capture.read(frame)) {
             if (!frame.empty()) {
                 // Encode frame to JPEG (simple for demo, but not very efficient for video)
-                Imgcodecs.imencode(".jpg", frame, mob);
+                Imgcodecs.imencode(".jpg", frame, mob ,new MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, quality));
                 byte[] frameBytes = mob.toArray();
-
+                System.out.println("you need up load faster then: " + (mob.total()*8*5)/1024 + " K bytes");
                 // For fragmented packets, each packet might look like:
                 // [4 bytes: frameId] [4 bytes: fragmentIndex] [4 bytes: totalFragments] [data...]
                 int maxPacketSize = 1400; // Typical payload size to avoid IP fragmentation
@@ -85,7 +87,7 @@ public class VideoCaptureThread extends Thread {
             }
 
             try {
-                Thread.sleep(66); // ~33ms for ~30 FPS
+                Thread.sleep(200); // ~33ms for ~30 FPS
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 running.set(false);
