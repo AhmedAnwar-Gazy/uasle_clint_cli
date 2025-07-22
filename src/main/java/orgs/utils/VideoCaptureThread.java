@@ -55,7 +55,7 @@ public class VideoCaptureThread extends Thread {
                 // Encode frame to JPEG (simple for demo, but not very efficient for video)
                 Imgcodecs.imencode(".jpg", frame, mob ,new MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, quality));
                 byte[] frameBytes = mob.toArray();
-                System.out.println("you need up load faster then: " + (mob.total()*8*5)/1024 + " K bytes");
+                System.out.println("you need up load faster then: " + (mob.total()*8*5)/1024 + " K bits");
                 // For fragmented packets, each packet might look like:
                 // [4 bytes: frameId] [4 bytes: fragmentIndex] [4 bytes: totalFragments] [data...]
                 int maxPacketSize = 1400; // Typical payload size to avoid IP fragmentation

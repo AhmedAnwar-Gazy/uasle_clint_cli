@@ -38,9 +38,9 @@ import javax.swing.*;
 import static orgs.utils.StunClient.getPublicAddress;
 
 
-public class ChatClient4_5 implements AutoCloseable {
-    private static final String SERVER_IP = "192.168.1.99";
-    //private static final String SERVER_IP ="3.83.141.156" ;
+public class ChatClient4 implements AutoCloseable {
+    //private static final String SERVER_IP = "192.168.1.99";
+    private static final String SERVER_IP ="3.83.141.156" ;
     private static final int SERVER_PORT = 6373;
     private static final int FILE_TRANSFER_PORT = 6374;
 
@@ -82,7 +82,7 @@ public class ChatClient4_5 implements AutoCloseable {
     private JLabel videoLabel;
 
 
-    public ChatClient4_5() {
+    public ChatClient4() {
         this.scanner = new Scanner(System.in);
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
@@ -1427,7 +1427,7 @@ public class ChatClient4_5 implements AutoCloseable {
     }
 
     public static void main(String[] args) {
-        try (ChatClient4_5 client = new ChatClient4_5()) {
+        try (ChatClient4 client = new ChatClient4()) {
             System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
             client.startClient();
         } catch (Exception e) {
