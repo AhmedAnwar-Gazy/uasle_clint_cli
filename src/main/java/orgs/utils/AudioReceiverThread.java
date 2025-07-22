@@ -21,6 +21,7 @@ public class AudioReceiverThread extends Thread {
     private static final int CHANNELS = 1; // Mono
     private static final boolean SIGNED = true;
     private static final boolean BIG_ENDIAN = false; // Little-endian is common for PCM
+
     private int reseved = 0; // Simple frame counter
 
     public AudioReceiverThread(DatagramSocket socket) {
@@ -54,23 +55,38 @@ public class AudioReceiverThread extends Thread {
             sourceDataLine.open(format);
             sourceDataLine.start(); // Start playing
 
+            // Calculate frame size based on the format
+            int frameSize = format.getFrameSize();
+            if (frameSize <= 0) { // Should not happen with valid format, but good to check
+                System.err.println("Invalid frame size: " + frameSize + ". Cannot proceed with audio playback.");
+                running.set(false);
+                return;
+            }
+
             // Buffer size for receiving packets (should be large enough for a single audio packet)
             byte[] buffer = new byte[2048]; // Max UDP packet size is ~65507, but audio packets are usually smaller
 
-            System.out.println("Audio playback started. Listening on port " + udpSocket.getLocalPort());
+            System.out.println("Audio playback started. Listening on port " + udpSocket.getLocalPort() + ". Frame size: " + frameSize + " bytes.");
 
             while (running.get() && !udpSocket.isClosed()) {
-                System.out.println("listening  %%%%%%%%");
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 try {
                     udpSocket.receive(packet);
-                    if (packet.getLength() > 0) {
-                        sourceDataLine.write(packet.getData(), 0, packet.getLength());
-                        // System.out.println("Received and played audio packet: " + packet.getLength() + " bytes"); // Too verbose
-                        System.out.println("---------   Received and played audio packet "+ (++reseved)) ;
+                    int bytesReceived = packet.getLength();
+
+                    if (bytesReceived > 0) {
+                        // Ensure the number of bytes to write is a multiple of the frame size
+                        int bytesToWrite = bytesReceived - (bytesReceived % frameSize);
+
+                        if (bytesToWrite > 0) {
+                            sourceDataLine.write(packet.getData(), 0, bytesToWrite);
+                            System.out.println("--------- Received and played audio packet " + (++reseved) + " (" + bytesToWrite + " bytes)");
+                        } else {
+                            System.err.println("Received audio packet with non-integral number of frames. Discarding " + bytesReceived + " bytes.");
+                        }
                     }
                 } catch (IOException e) {
-                    if (running.get() && !udpSocket.isClosed()) { // Only log if not intentionally stopped or socket closed
+                    if (running.get() && !udpSocket.isClosed()) {
                         System.err.println("Error receiving audio packet: " + e.getMessage());
                     }
                 }
