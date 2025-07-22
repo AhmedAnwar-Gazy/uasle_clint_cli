@@ -24,6 +24,7 @@ public class AudioCaptureThread extends Thread {
     private static final int CHANNELS = 1; // Mono
     private static final boolean SIGNED = true;
     private static final boolean BIG_ENDIAN = false; // Little-endian is common for PCM
+    private int frameId = 0; // Simple frame counter
 
     public AudioCaptureThread(DatagramSocket socket, InetAddress remoteIp, int remoteUdpPort) {
         this.udpSocket = socket;
@@ -76,6 +77,8 @@ public class AudioCaptureThread extends Thread {
                             System.err.println("Error sending audio packet: " + e.getMessage());
                         }
                     }
+                    frameId++;
+                    System.out.println("------ send audio to the ip : "+remoteIp+ " on port : "+remoteUdpPort);
                 }
             }
         } catch (LineUnavailableException e) {

@@ -21,6 +21,7 @@ public class AudioReceiverThread extends Thread {
     private static final int CHANNELS = 1; // Mono
     private static final boolean SIGNED = true;
     private static final boolean BIG_ENDIAN = false; // Little-endian is common for PCM
+    private int reseved = 0; // Simple frame counter
 
     public AudioReceiverThread(DatagramSocket socket) {
         this.udpSocket = socket;
@@ -59,12 +60,14 @@ public class AudioReceiverThread extends Thread {
             System.out.println("Audio playback started. Listening on port " + udpSocket.getLocalPort());
 
             while (running.get() && !udpSocket.isClosed()) {
+                System.out.println("listening  %%%%%%%%");
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 try {
                     udpSocket.receive(packet);
                     if (packet.getLength() > 0) {
                         sourceDataLine.write(packet.getData(), 0, packet.getLength());
                         // System.out.println("Received and played audio packet: " + packet.getLength() + " bytes"); // Too verbose
+                        System.out.println("---------   Received and played audio packet "+ (++reseved)) ;
                     }
                 } catch (IOException e) {
                     if (running.get() && !udpSocket.isClosed()) { // Only log if not intentionally stopped or socket closed

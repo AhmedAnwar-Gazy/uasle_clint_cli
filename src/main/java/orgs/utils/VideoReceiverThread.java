@@ -50,11 +50,9 @@ public class VideoReceiverThread extends Thread {
         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
         int reseved = 0 ;
         while (running.get() && !udpSocket.isClosed()) {
-            System.out.println("******   resved "+ (++reseved)) ;
+
 
             try {
-                String myPublicIp = InetAddress.getLocalHost().getHostAddress();
-                System.out.println("my ip : "+myPublicIp);
                 udpSocket.receive(packet);
                 ByteBuffer bBuffer = ByteBuffer.wrap(packet.getData(), 0, packet.getLength());
                 if (bBuffer.remaining() >= 12) { // Ensure header exists (frameId, fragIndex, totalFrags)
@@ -78,10 +76,10 @@ public class VideoReceiverThread extends Thread {
                             // Reassemble the full frame
                             byte[] fullFrameBytes = reassembleFrame(currentFrameId);
                             if (fullFrameBytes != null) {
+                                System.out.println("******   resved video "+ (++reseved)) ;
                                 displayFrame(fullFrameBytes);
                                 lastDisplayedFrameId = currentFrameId;
                             }
-                            System.out.println("receiv on ip : "+udpSocket.getLocalAddress().getHostName() +" and port"+ udpSocket.getLocalPort());
                         }
                         // Clean up processed frame data to prevent memory leak
                         frameBuffer.remove(currentFrameId);
