@@ -3,7 +3,7 @@ package orgs.client;
 import orgs.model.Message;
 import orgs.model.User;
 import orgs.model.Chat;
-import orgs.model.Media; // Import the new Media class
+import orgs.model.Media;
 import orgs.protocol.Command;
 import orgs.protocol.Request;
 import orgs.protocol.Response;
@@ -26,33 +26,26 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import org.opencv.core.Core;
-import org.opencv.core.Mat;
-import org.opencv.core.MatOfByte;
-import org.opencv.imgcodecs.Imgcodecs;
-import org.opencv.videoio.VideoCapture;
 import orgs.utils.VideoCaptureThread;
 import orgs.utils.VideoReceiverThread;
-import orgs.utils.AudioCaptureThread; // NEW
-import orgs.utils.AudioReceiverThread; // NEW
+import orgs.utils.AudioCaptureThread;
+import orgs.utils.AudioReceiverThread;
 
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.SocketException;
-import javax.imageio.ImageIO;
-import javax.swing.*; // For simple UI display
+import javax.swing.*;
 
 import static orgs.utils.StunClient.getPublicAddress;
 
 
-public class ChatClient4 implements AutoCloseable {
-    //private static final String SERVER_IP = "192.168.1.99"; // Localhost
-    private static final String SERVER_IP ="3.83.141.156" ;
+public class ChatClient4_5 implements AutoCloseable {
+    private static final String SERVER_IP = "192.168.1.99";
+    //private static final String SERVER_IP ="3.83.141.156" ;
     private static final int SERVER_PORT = 6373;
     private static final int FILE_TRANSFER_PORT = 6374;
 
     private String currentFilePathToSend;
-    private String pendingFileTransferId; // This will now be received from the server
+    private String pendingFileTransferId;
 
     private Socket socket;
     private PrintWriter out;
@@ -67,22 +60,29 @@ public class ChatClient4 implements AutoCloseable {
 
     private final BlockingQueue<Response> responseQueue = new LinkedBlockingQueue<>();
 
+    // Separate UDP Sockets for Video and Audio
+    private DatagramSocket udpVideoSocket; // UDP socket for video stream
+    private DatagramSocket udpAudioSocket; // UDP socket for audio stream
 
-    private DatagramSocket udpSocket; // This socket will be used for both video and audio
-    private int localUdpPort;
-    private InetAddress remoteIp;
-    private int remoteUdpPort;
+    private int localVideoUdpPort;
+    private int localAudioUdpPort;
+
+    private InetAddress remoteVideoIp;
+    private int remoteVideoUdpPort;
+    private InetAddress remoteAudioIp; // NEW: Remote IP for audio
+    private int remoteAudioUdpPort;    // NEW: Remote UDP port for audio
+
     private VideoCaptureThread videoCaptureThread;
     private VideoReceiverThread videoReceiverThread;
-    private AudioCaptureThread audioCaptureThread; // NEW
-    private AudioReceiverThread audioReceiverThread; // NEW
+    private AudioCaptureThread audioCaptureThread;
+    private AudioReceiverThread audioReceiverThread;
 
-    // UI for video call display (can be improved)
+    // UI for video call display
     private JFrame videoFrame;
     private JLabel videoLabel;
 
 
-    public ChatClient4() {
+    public ChatClient4_5() {
         this.scanner = new Scanner(System.in);
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
@@ -104,9 +104,8 @@ public class ChatClient4 implements AutoCloseable {
             while ((serverResponseJson = in.readLine()) != null) {
 
                 Response response = gson.fromJson(serverResponseJson, Response.class);
-                System.out.println("[DEBUG - Raw Server Response]: " + serverResponseJson); // Added for debugging
+                System.out.println("[DEBUG - Raw Server Response]: " + serverResponseJson);
 
-                // Special handling for file transfer initiation
                 if ("READY_TO_RECEIVE_FILE".equals(response.getMessage())) {
                     System.out.println("Server is ready for file transfer. Initiating file send...");
                     Type type = new TypeToken<Map<String, String>>() {}.getType();
@@ -120,28 +119,29 @@ public class ChatClient4 implements AutoCloseable {
                     } else {
                         System.err.println("Error: Server responded READY_TO_RECEIVE_FILE but no transfer_id found in data.");
                     }
-                    continue; // Do not put this into the main response queue
+                    continue;
                 }
                 System.out.println(" ---------- new message ");
-
 
                 String commandcall = response.getMessage();
                 switch (commandcall) {
                     case "VIDEO_CALL_OFFER":
-
-                        // This is the response from the server, notifying *this* client of an incoming call.
-                        // The payload contains information about the caller.
                         Map<String, Object> offerData = gson.fromJson(response.getData(), new TypeToken<Map<String, Object>>(){}.getType());
                         int callerId = ((Double) offerData.get("caller_id")).intValue();
                         String callerUsername = (String) offerData.get("caller_username");
-                        String callerPublicIp = (String) offerData.get("caller_public_ip"); // Caller's public IP
-                        int callerUdpPort = ((Double) offerData.get("caller_udp_port")).intValue(); // Caller's UDP port
+                        // Retrieve separate video and audio IPs/ports
+                        String callerPublicVideoIp = (String) offerData.get("caller_public_video_ip");
+                        int callerUdpVideoPort = ((Double) offerData.get("caller_udp_video_port")).intValue();
+                        String callerPublicAudioIp = (String) offerData.get("caller_public_audio_ip"); // NEW
+                        int callerUdpAudioPort = ((Double) offerData.get("caller_udp_audio_port")).intValue(); // NEW
 
-                        System.out.println("Incoming video call from " + callerUsername + " (" + callerPublicIp + ":" + callerUdpPort + ")");
+                        System.out.println("Incoming video call from " + callerUsername + " (Video: " + callerPublicVideoIp + ":" + callerUdpVideoPort + ", Audio: " + callerPublicAudioIp + ":" + callerUdpAudioPort + ")");
 
                         final int finalCallerId = callerId;
-                        final String finalCallerPublicIp = callerPublicIp;
-                        final int finalCallerUdpPort = callerUdpPort;
+                        final String finalCallerPublicVideoIp = callerPublicVideoIp;
+                        final int finalCallerUdpVideoPort = callerUdpVideoPort;
+                        final String finalCallerPublicAudioIp = callerPublicAudioIp; // NEW
+                        final int finalCallerUdpAudioPort = callerUdpAudioPort;    // NEW
                         final String finalCallerUsername = callerUsername;
 
                         SwingUtilities.invokeLater(() -> {
@@ -155,25 +155,42 @@ public class ChatClient4 implements AutoCloseable {
                             boolean acceptCall = (choice == JOptionPane.YES_OPTION);
 
                             try {
-                                InetSocketAddress publicAddress = getPublicAddress(udpSocket); // Use the STUN client
-                                String myPublicIp = publicAddress.getAddress().getHostAddress();
-                                int myPublicPort = publicAddress.getPort();
+                                // Get own public video and audio addresses via STUN
+                                InetSocketAddress publicVideoAddress = getPublicAddress(udpVideoSocket);
+                                InetSocketAddress publicAudioAddress = getPublicAddress(udpAudioSocket);
+
+                                String myPublicVideoIp = publicVideoAddress != null ? publicVideoAddress.getAddress().getHostAddress() : null;
+                                int myPublicVideoPort = publicVideoAddress != null ? publicVideoAddress.getPort() : -1;
+                                String myPublicAudioIp = publicAudioAddress != null ? publicAudioAddress.getAddress().getHostAddress() : null;
+                                int myPublicAudioPort = publicAudioAddress != null ? publicAudioAddress.getPort() : -1;
+
+                                if (myPublicVideoIp == null || myPublicVideoPort == -1 || myPublicAudioIp == null || myPublicAudioPort == -1) {
+                                    System.err.println("Could not determine own public video/audio IP/port via STUN. Cannot answer call.");
+                                    acceptCall = false; // Force reject if STUN fails
+                                }
 
                                 Map<String, Object> answerPayload = new HashMap<>();
                                 answerPayload.put("caller_id", finalCallerId);
                                 answerPayload.put("accepted", acceptCall);
-                                answerPayload.put("recipient_public_ip", myPublicIp);
-                                answerPayload.put("recipient_udp_port", myPublicPort);
+                                if (acceptCall) {
+                                    answerPayload.put("recipient_public_video_ip", myPublicVideoIp);
+                                    answerPayload.put("recipient_udp_video_port", myPublicVideoPort);
+                                    answerPayload.put("recipient_public_audio_ip", myPublicAudioIp); // NEW
+                                    answerPayload.put("recipient_udp_audio_port", myPublicAudioPort); // NEW
+                                }
 
                                 Request request = new Request(Command.VIDEO_CALL_ANSWER, answerPayload);
                                 out.println(gson.toJson(request));
 
                                 if (acceptCall) {
-                                    remoteIp = InetAddress.getByName(finalCallerPublicIp);
-                                    remoteUdpPort = finalCallerUdpPort;
+                                    // Store remote video and audio IPs/ports
+                                    remoteVideoIp = InetAddress.getByName(finalCallerPublicVideoIp);
+                                    remoteVideoUdpPort = finalCallerUdpVideoPort;
+                                    remoteAudioIp = InetAddress.getByName(finalCallerPublicAudioIp); // NEW
+                                    remoteAudioUdpPort = finalCallerUdpAudioPort;    // NEW
 
-                                    sendUdpPunchingPacket(remoteIp, remoteUdpPort);
-                                    startMediaCallThreads(); // Now handles both video and audio
+                                    sendUdpPunchingPackets(); // Punch holes for both streams
+                                    startMediaCallThreads();
                                     System.out.println("Accepted call from " + finalCallerUsername + ". Initiating media stream...");
                                 } else {
                                     System.out.println("Rejected call from " + finalCallerUsername + ".");
@@ -182,7 +199,7 @@ public class ChatClient4 implements AutoCloseable {
                                 System.err.println("Error responding to video call offer: " + e.getMessage());
                                 e.printStackTrace();
                             } catch (Exception e) {
-                                System.err.println("STUN discovery error: " + e.getMessage());
+                                System.err.println("STUN discovery error during call answer: " + e.getMessage());
                                 e.printStackTrace();
                             }
                         });
@@ -190,26 +207,31 @@ public class ChatClient4 implements AutoCloseable {
 
                     case "VIDEO_CALL_ACCEPTED":
                         Map<String, Object> acceptedData = gson.fromJson(response.getData(), new TypeToken<Map<String, Object>>(){}.getType());
-                        String calleePublicIp = (String) acceptedData.get("callee_public_ip");
-                        int calleeUdpPort = ((Double) acceptedData.get("callee_udp_port")).intValue();
+                        // Retrieve separate video and audio IPs/ports
+                        String calleePublicVideoIp = (String) acceptedData.get("callee_public_video_ip");
+                        int calleeUdpVideoPort = ((Double) acceptedData.get("callee_udp_video_port")).intValue();
+                        String calleePublicAudioIp = (String) acceptedData.get("callee_public_audio_ip"); // NEW
+                        int calleeUdpAudioPort = ((Double) acceptedData.get("callee_udp_audio_port")).intValue(); // NEW
 
                         try {
-                            remoteIp = InetAddress.getByName(calleePublicIp);
+                            remoteVideoIp = InetAddress.getByName(calleePublicVideoIp);
+                            remoteAudioIp = InetAddress.getByName(calleePublicAudioIp); // NEW
                         } catch (UnknownHostException e) {
-                            System.err.println("Invalid callee IP address: " + calleePublicIp + " - " + e.getMessage());
+                            System.err.println("Invalid callee IP address: " + calleePublicVideoIp + " or " + calleePublicAudioIp + " - " + e.getMessage());
                             break;
                         }
-                        remoteUdpPort = calleeUdpPort;
+                        remoteVideoUdpPort = calleeUdpVideoPort;
+                        remoteAudioUdpPort = calleeUdpAudioPort; // NEW
 
-                        sendUdpPunchingPacket(remoteIp, remoteUdpPort);
-                        startMediaCallThreads(); // Now handles both video and audio
+                        sendUdpPunchingPackets(); // Punch holes for both streams
+                        startMediaCallThreads();
                         System.out.println("Call accepted by " + (String)acceptedData.get("callee_username") + ". Starting media stream.");
                         break;
 
                     case "VIDEO_CALL_REJECTED":
                         Map<String, Object> rejectedData = gson.fromJson(response.getData(), new TypeToken<Map<String, Object>>(){}.getType());
                         System.out.println("Video call rejected by " + (String)rejectedData.get("callee_username"));
-                        stopMediaCallThreads(); // Clean up if any resources were started
+                        stopMediaCallThreads();
                         break;
 
                     case "VIDEO_CALL_ENDED":
@@ -219,7 +241,6 @@ public class ChatClient4 implements AutoCloseable {
                         break;
 
                     default:
-                        // Handle other commands
                 }
 
                 if (response.isSuccess() && "New message received".equals(response.getMessage())) {
@@ -232,10 +253,10 @@ public class ChatClient4 implements AutoCloseable {
                                 newMessage.getMedia().getMediaType(), newMessage.getMedia().getFileName());
                     }
                     System.out.println(String.format("\n[NEW MESSAGE from %s in Chat ID %d]: %s%s",
-                            senderInfo, newMessage.getChatId(), contentToDisplay, mediaInfo));
-                    System.out.print("> "); // Re-prompt
+                            senderInfo, contentToDisplay, mediaInfo));
+                    System.out.print("> ");
                 } else {
-                    responseQueue.put(response); // Put all other responses into the queue
+                    responseQueue.put(response);
                 }
             }
         } catch (SocketException e) {
@@ -279,11 +300,17 @@ public class ChatClient4 implements AutoCloseable {
                     this.currentUser = gson.fromJson(loginResponse.getData(), User.class);
                     System.out.println("Logged in as: " + currentUser.getPhoneNumber() + " (" + currentUser.getFirstName() + " " + currentUser.getLastName() + ")");
                     try {
-                        udpSocket = new DatagramSocket(); // Let OS assign a free port for both video and audio
-                        localUdpPort = udpSocket.getLocalPort();
-                        System.out.println("Client UDP socket opened on port: " + localUdpPort);
+                        // Initialize separate UDP sockets for video and audio
+                        udpVideoSocket = new DatagramSocket();
+                        localVideoUdpPort = udpVideoSocket.getLocalPort();
+                        System.out.println("Client UDP video socket opened on port: " + localVideoUdpPort);
+
+                        udpAudioSocket = new DatagramSocket();
+                        localAudioUdpPort = udpAudioSocket.getLocalPort();
+                        System.out.println("Client UDP audio socket opened on port: " + localAudioUdpPort);
+
                     } catch (SocketException e) {
-                        System.err.println("Error opening UDP socket: " + e.getMessage());
+                        System.err.println("Error opening UDP sockets: " + e.getMessage());
                     }
                     break;
                 } else if (loginResponse != null) {
@@ -341,8 +368,8 @@ public class ChatClient4 implements AutoCloseable {
         System.out.println("12. Delete Chat");
         System.out.println("13. Logout");
         System.out.println("14. Get Media File");
-        System.out.println("15. Initiate Video Call"); // Changed to "Initiate Video Call" for clarity
-        System.out.println("16. End Video Call"); // NEW: Added command to end call
+        System.out.println("15. Initiate Video Call");
+        System.out.println("16. End Video Call");
     }
 
     private void handleUserInput(String commandInput) {
@@ -567,34 +594,13 @@ public class ChatClient4 implements AutoCloseable {
                     String targetID = scanner.nextLine();
                     initiateVideoCall(targetID);
                     return;
-                case "16": // End Video Call (NEW)
-                    // You'll need to store the target user ID of the current call
-                    // For simplicity, let's assume 'remoteIp' indicates an active call
-                    if (remoteIp != null) {
-                        System.out.print("Confirm ending call with " + remoteIp.getHostAddress() + "? (yes/no): ");
+                case "16": // End Video Call
+                    if (remoteVideoIp != null || remoteAudioIp != null) { // Check if a call is active
+                        System.out.print("Confirm ending call? (yes/no): ");
                         if (scanner.nextLine().equalsIgnoreCase("yes")) {
-                            // In a real app, you'd send the actual target user ID.
-                            // For this example, we'll send a dummy payload or rely on server to infer.
-                            // The server's handleEndVideoCall expects "target_user_id".
-                            // You need to store the calleeId/callerId from the accepted call.
-                            // For now, let's just send the command, assuming the server can infer.
-                            // A better approach would be to store the `remoteUserId` when the call is established.
-                            // For demonstration, let's pass a placeholder or the last known remote user ID.
-                            // Assuming `remoteUserId` is a field in ChatClient4 updated on call acceptance.
-                            // For now, let's use a dummy value or infer from server's active calls map.
-                            // This part needs proper client-side state management for active calls.
-                            // For now, let's assume the server will handle it based on currentUserId.
-                            // If your server requires `target_user_id`, you must store it when the call starts.
-                            // Let's assume `remoteUserId` is updated when `remoteIp` is set.
-                            // Since `remoteIp` is set, we can infer a call is active.
-                            // The server's `handleEndVideoCall` expects `target_user_id`.
-                            // We need to pass the ID of the *other* person in the call.
-                            // This requires storing `remoteUserId` when the call is initiated/accepted.
-                            // For this example, let's assume `remoteUserId` is available.
-                            // If you want to end a call, you need to know *who* you're ending it with.
-                            // The `remoteIp` and `remoteUdpPort` are set, but not `remoteUserId`.
-                            // Let's add a placeholder for `remoteUserId` and remind the user.
-                            System.out.println("To end call, you need to know the remote user's ID.");
+                            // You need the remote user ID here to send to the server.
+                            // This would ideally be stored when the call is accepted/initiated.
+                            // For now, let's prompt the user for it.
                             System.out.print("Enter the ID of the user you are currently calling/called by: ");
                             int remoteUserIdForEndCall = Integer.parseInt(scanner.nextLine());
                             endCurrentVideoCall(remoteUserIdForEndCall);
@@ -627,13 +633,8 @@ public class ChatClient4 implements AutoCloseable {
         }
     }
 
-    // ... (rest of ChatClient4 methods like login, sendRequestAndAwaitResponse, sendFileBytes, closeConnection)
-    // You will need to add the helper methods like manageProfile, getUserChats, manageChatParticipants,
-    // manageContacts, blockUnblockUser, getNotifications, updateDeleteMessage, deleteChat if they are not already defined.
-
     private void manageProfile(Scanner scanner) {
         System.out.println("Manage Profile functionality not yet fully implemented in this example.");
-        // Placeholder for profile management logic
     }
 
     private void getUserChats() {
@@ -1172,7 +1173,7 @@ public class ChatClient4 implements AutoCloseable {
                     System.out.println("\nFile '" + fileName + "' received successfully and saved to " + outputFile.getAbsolutePath());
                 } else {
                     System.err.println("\nFile transfer incomplete. Expected: " + fileSize + ", Received: " + totalBytesReceived);
-                    outputFile.delete(); // Clean up incomplete file
+                    outputFile.delete();
                 }
             }
         } catch (IOException e) {
@@ -1183,40 +1184,60 @@ public class ChatClient4 implements AutoCloseable {
 
     /**
      * Initiates a video call to a target user.
-     * This method now attempts to discover the client's public IP address
-     * using an external service before sending the call initiation request.
+     * This method now discovers the client's public IP address and separate ports
+     * for video and audio using STUN, then sends them to the server.
      * @param targetUserId The ID of the user to call.
      */
     public void initiateVideoCall(String targetUserId) throws Exception {
-        // Ensure UDP socket is initialized before STUN
-        if (udpSocket == null || udpSocket.isClosed()) {
+        // Ensure UDP sockets are initialized before STUN
+        if (udpVideoSocket == null || udpVideoSocket.isClosed()) {
             try {
-                udpSocket = new DatagramSocket();
-                localUdpPort = udpSocket.getLocalPort();
-                System.out.println("Client UDP socket opened on port: " + localUdpPort);
+                udpVideoSocket = new DatagramSocket();
+                localVideoUdpPort = udpVideoSocket.getLocalPort();
+                System.out.println("Client UDP video socket opened on port: " + localVideoUdpPort);
             } catch (SocketException e) {
-                System.err.println("Error opening UDP socket for call: " + e.getMessage());
+                System.err.println("Error opening UDP video socket for call: " + e.getMessage());
+                return;
+            }
+        }
+        if (udpAudioSocket == null || udpAudioSocket.isClosed()) {
+            try {
+                udpAudioSocket = new DatagramSocket();
+                localAudioUdpPort = udpAudioSocket.getLocalPort();
+                System.out.println("Client UDP audio socket opened on port: " + localAudioUdpPort);
+            } catch (SocketException e) {
+                System.err.println("Error opening UDP audio socket for call: " + e.getMessage());
                 return;
             }
         }
 
-        InetSocketAddress publicAddress = getPublicAddress(udpSocket); // Use the STUN client
-        String myPublicIp = publicAddress != null ? publicAddress.getAddress().getHostAddress() : null;
-        int myPublicPort = publicAddress != null ? publicAddress.getPort() : -1;
+        // Get public addresses for both video and audio sockets via STUN
+        InetSocketAddress publicVideoAddress = getPublicAddress(udpVideoSocket);
+        InetSocketAddress publicAudioAddress = getPublicAddress(udpAudioSocket);
 
-        if (myPublicIp == null || myPublicPort == -1) {
-            System.err.println("Could not determine public IP address and/or port via STUN. Cannot initiate video call.");
+        String myPublicVideoIp = publicVideoAddress != null ? publicVideoAddress.getAddress().getHostAddress() : null;
+        int myPublicVideoPort = publicVideoAddress != null ? publicVideoAddress.getPort() : -1;
+        String myPublicAudioIp = publicAudioAddress != null ? publicAudioAddress.getAddress().getHostAddress() : null;
+        int myPublicAudioPort = publicAudioAddress != null ? publicAudioAddress.getPort() : -1;
+
+
+        if (myPublicVideoIp == null || myPublicVideoPort == -1 || myPublicAudioIp == null || myPublicAudioPort == -1) {
+            System.err.println("Could not determine public video and/or audio IP/port via STUN. Cannot initiate video call.");
             return;
         }
 
-        // Send call initiation request to server
+        // Send call initiation request to server with both IP/port pairs
         Map<String, Object> payload = new HashMap<>();
         payload.put("target_user_id", targetUserId);
-        payload.put("sender_public_ip", myPublicIp);
-        payload.put("sender_udp_port", myPublicPort);
+        payload.put("sender_public_video_ip", myPublicVideoIp);
+        payload.put("sender_udp_video_port", myPublicVideoPort);
+        payload.put("sender_public_audio_ip", myPublicAudioIp); // NEW
+        payload.put("sender_udp_audio_port", myPublicAudioPort); // NEW
 
         sendRequestAndAwaitResponse(new Request(Command.INITIATE_VIDEO_CALL, payload));
-        System.out.println("Video call initiation request sent to server for user: " + targetUserId + " with public IP: " + myPublicIp + ":" + myPublicPort);
+        System.out.println("Video call initiation request sent to server for user: " + targetUserId +
+                " (Video: " + myPublicVideoIp + ":" + myPublicVideoPort +
+                ", Audio: " + myPublicAudioIp + ":" + myPublicAudioPort + ")");
     }
 
     /**
@@ -1224,27 +1245,29 @@ public class ChatClient4 implements AutoCloseable {
      */
     private void startMediaCallThreads() {
         System.out.println("@@@@@ Starting Media Call Threads @@@@@");
-        System.out.println("Local UDP Port: " + udpSocket.getLocalPort());
-        System.out.println("Remote IP: " + remoteIp);
-        System.out.println("Remote UDP Port: " + remoteUdpPort);
+        System.out.println("Local Video UDP Port: " + udpVideoSocket.getLocalPort());
+        System.out.println("Local Audio UDP Port: " + udpAudioSocket.getLocalPort());
+        System.out.println("Remote Video IP: " + remoteVideoIp + ", Port: " + remoteVideoUdpPort);
+        System.out.println("Remote Audio IP: " + remoteAudioIp + ", Port: " + remoteAudioUdpPort);
+
 
         // Initialize and start Video Capture/Receiver Threads
         if (videoCaptureThread == null || !videoCaptureThread.isAlive()) {
-            videoCaptureThread = new VideoCaptureThread(udpSocket, remoteIp, remoteUdpPort);
+            videoCaptureThread = new VideoCaptureThread(udpVideoSocket, remoteVideoIp, remoteVideoUdpPort);
             videoCaptureThread.start();
         }
         if (videoReceiverThread == null || !videoReceiverThread.isAlive()) {
-            videoReceiverThread = new VideoReceiverThread(udpSocket);
+            videoReceiverThread = new VideoReceiverThread(udpVideoSocket);
             videoReceiverThread.start();
         }
 
-        // Initialize and start Audio Capture/Receiver Threads (NEW)
+        // Initialize and start Audio Capture/Receiver Threads
         if (audioCaptureThread == null || !audioCaptureThread.isAlive()) {
-            audioCaptureThread = new AudioCaptureThread(udpSocket, remoteIp, remoteUdpPort);
+            audioCaptureThread = new AudioCaptureThread(udpAudioSocket, remoteAudioIp, remoteAudioUdpPort);
             audioCaptureThread.start();
         }
         if (audioReceiverThread == null || !audioReceiverThread.isAlive()) {
-            audioReceiverThread = new AudioReceiverThread(udpSocket);
+            audioReceiverThread = new AudioReceiverThread(udpAudioSocket);
             audioReceiverThread.start();
         }
 
@@ -1254,28 +1277,26 @@ public class ChatClient4 implements AutoCloseable {
             videoLabel = new JLabel();
             videoFrame.add(videoLabel);
             videoFrame.setSize(640, 480);
-            videoFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE); // Prevent closing without stopping threads
+            videoFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
             videoFrame.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosing(java.awt.event.WindowEvent windowEvent) {
-                    // Prompt user to confirm ending call
                     int confirm = JOptionPane.showConfirmDialog(videoFrame,
                             "Are you sure you want to end the call?", "End Call?",
                             JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
                     if (confirm == JOptionPane.YES_OPTION) {
-                        // You need the remote user ID here to send to the server.
-                        // For simplicity, we'll just stop local threads.
-                        // In a real app, you'd send an END_VIDEO_CALL command to the server with the correct target ID.
+                        // This will stop local threads. Server/peer notification needs to be handled
+                        // by explicitly calling endCurrentVideoCall(remoteUserId).
                         System.out.println("User closed video window. Ending call locally. Remember to notify server/peer.");
                         stopMediaCallThreads();
                         videoFrame.dispose();
-                        videoFrame = null; // Allow recreation
+                        videoFrame = null;
                     }
                 }
             });
             videoFrame.setVisible(true);
         } else {
-            videoFrame.setVisible(true); // Show existing frame if hidden
+            videoFrame.setVisible(true);
         }
         videoReceiverThread.setVideoDisplayLabel(videoLabel);
     }
@@ -1295,7 +1316,6 @@ public class ChatClient4 implements AutoCloseable {
             videoReceiverThread.interrupt();
             videoReceiverThread = null;
         }
-        // Stop Audio Threads (NEW)
         if (audioCaptureThread != null) {
             audioCaptureThread.stopCapture();
             audioCaptureThread.interrupt();
@@ -1307,10 +1327,9 @@ public class ChatClient4 implements AutoCloseable {
             audioReceiverThread = null;
         }
 
-        // Close video display window if open
         if (videoFrame != null) {
-            videoFrame.dispose(); // Close the frame
-            videoFrame = null; // Set to null so a new one can be created for next call
+            videoFrame.dispose();
+            videoFrame = null;
             videoLabel = null;
         }
         System.out.println("Media call threads stopped and window closed.");
@@ -1323,38 +1342,54 @@ public class ChatClient4 implements AutoCloseable {
     public void endCurrentVideoCall(int targetUserId) {
         if (currentUser != null && targetUserId != -1) {
             Map<String, Object> payload = new HashMap<>();
-            payload.put("target_user_id", targetUserId); // The server needs to know who to notify
+            payload.put("target_user_id", targetUserId);
             sendRequestAndAwaitResponse(new Request(Command.END_VIDEO_CALL, payload));
             System.out.println("Sent end call request to server for user: " + targetUserId);
-            stopMediaCallThreads(); // Stop local media streams immediately
+            stopMediaCallThreads();
         } else {
             System.out.println("Cannot end call: No current user or target user ID is unknown.");
         }
     }
 
-    private void sendUdpPunchingPacket(InetAddress remoteIp, int remoteUdpPort) {
-        if (udpSocket == null || udpSocket.isClosed()) {
-            System.err.println("UDP socket is not initialized or is closed. Cannot send punching packet.");
-            return;
+    /**
+     * Sends UDP punching packets for both video and audio streams.
+     */
+    private void sendUdpPunchingPackets() {
+        // Send punching packets for video stream
+        if (udpVideoSocket != null && !udpVideoSocket.isClosed() && remoteVideoIp != null) {
+            sendSingleUdpPunchingPacket(udpVideoSocket, remoteVideoIp, remoteVideoUdpPort, "Video");
+        } else {
+            System.err.println("Video UDP socket not ready for punching.");
         }
+
+        // Send punching packets for audio stream
+        if (udpAudioSocket != null && !udpAudioSocket.isClosed() && remoteAudioIp != null) {
+            sendSingleUdpPunchingPacket(udpAudioSocket, remoteAudioIp, remoteAudioUdpPort, "Audio");
+        } else {
+            System.err.println("Audio UDP socket not ready for punching.");
+        }
+    }
+
+    /**
+     * Helper method to send a single set of UDP punching packets.
+     */
+    private void sendSingleUdpPunchingPacket(DatagramSocket socket, InetAddress remoteIp, int remoteUdpPort, String streamType) {
         try {
-            // A small dummy packet to punch the hole
             byte[] data = new byte[1]; // Minimal data
             DatagramPacket packet = new DatagramPacket(data, data.length, remoteIp, remoteUdpPort);
-            // Send multiple packets to increase the chance of punching the hole
-            for (int i = 0; i < 5; i++) { // Send 5 punching packets
-                udpSocket.send(packet);
-                // System.out.println("Sent UDP punching packet " + (i + 1) + " to " + remoteIp.getHostAddress() + ":" + remoteUdpPort);
+            for (int i = 0; i < 5; i++) {
+                socket.send(packet);
+                // System.out.println("Sent " + streamType + " UDP punching packet " + (i + 1) + " to " + remoteIp.getHostAddress() + ":" + remoteUdpPort);
                 try {
-                    Thread.sleep(100); // Small delay between packets
+                    Thread.sleep(100);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 }
             }
-            System.out.println("Sent UDP punching packets to " + remoteIp.getHostAddress() + ":" + remoteUdpPort);
+            System.out.println("Sent " + streamType + " UDP punching packets to " + remoteIp.getHostAddress() + ":" + remoteUdpPort);
         } catch (IOException e) {
-            System.err.println("Error sending UDP punching packet: " + e.getMessage());
+            System.err.println("Error sending " + streamType + " UDP punching packet: " + e.getMessage());
         }
     }
 
@@ -1377,10 +1412,14 @@ public class ChatClient4 implements AutoCloseable {
             if (scanner != null) {
                 scanner.close();
             }
-            if (udpSocket != null && !udpSocket.isClosed()) {
-                udpSocket.close();
+            // Close both UDP sockets
+            if (udpVideoSocket != null && !udpVideoSocket.isClosed()) {
+                udpVideoSocket.close();
             }
-            stopMediaCallThreads(); // Ensure all media threads are stopped
+            if (udpAudioSocket != null && !udpAudioSocket.isClosed()) {
+                udpAudioSocket.close();
+            }
+            stopMediaCallThreads();
             System.out.println("Client connection closed.");
         } catch (IOException e) {
             System.err.println("Error closing client resources: " + e.getMessage());
@@ -1388,8 +1427,7 @@ public class ChatClient4 implements AutoCloseable {
     }
 
     public static void main(String[] args) {
-        try (ChatClient4 client = new ChatClient4()) {
-            // Load OpenCV native library (required for VideoCaptureThread)
+        try (ChatClient4_5 client = new ChatClient4_5()) {
             System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
             client.startClient();
         } catch (Exception e) {
