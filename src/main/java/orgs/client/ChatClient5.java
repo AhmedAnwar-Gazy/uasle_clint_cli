@@ -1,18 +1,19 @@
 package orgs.client;
 
-import javafx.fxml.JavaFXBuilderFactory;
-import orgs.model.Message;
-import orgs.model.User;
-import orgs.model.Chat;
-import orgs.model.Media;
-import orgs.protocol.Command;
-import orgs.protocol.Request;
-import orgs.protocol.Response;
-import orgs.utils.LocalDateTimeAdapter;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import org.opencv.core.Core;
+import orgs.model.Chat;
+import orgs.model.Media;
+import orgs.model.Message;
+import orgs.model.User;
+import orgs.protocol.Command;
+import orgs.protocol.Request;
+import orgs.protocol.Response;
+import orgs.utils.*;
 
+import javax.swing.*;
 import java.io.*;
 import java.lang.reflect.Type;
 import java.net.*;
@@ -26,22 +27,12 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import org.opencv.core.Core;
-import orgs.utils.VideoCaptureThread;
-import orgs.utils.VideoReceiverThread;
-import orgs.utils.AudioCaptureThread;
-import orgs.utils.AudioReceiverThread;
-
-import java.io.IOException;
-import java.net.SocketException;
-import javax.swing.*;
-
 import static orgs.utils.StunClient.getPublicAddress;
 
 
-public class ChatClient4 implements AutoCloseable {
-    //private static final String SERVER_IP = "192.168.1.99";
-    private static final String SERVER_IP ="3.83.141.156" ;
+public class ChatClient5 implements AutoCloseable {
+    private static final String SERVER_IP = "192.168.1.99";
+    //private static final String SERVER_IP ="3.83.141.156" ;
     private static final int SERVER_PORT = 6373;
     private static final int FILE_TRANSFER_PORT = 6374;
 
@@ -83,7 +74,7 @@ public class ChatClient4 implements AutoCloseable {
     private JLabel videoLabel;
 
 
-    public ChatClient4() {
+    public ChatClient5() {
         this.scanner = new Scanner(System.in);
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
@@ -371,8 +362,12 @@ public class ChatClient4 implements AutoCloseable {
         System.out.println("12. Delete Chat");
         System.out.println("13. Logout");
         System.out.println("14. Get Media File");
-        System.out.println("15. Initiate Video Call");
-        System.out.println("16. End Video Call");
+        System.out.println("15. get messages after id ");
+        System.out.println("16. Get User by id");
+        System.out.println("17. Get User by phone number");
+        System.out.println("18. Get chat by id");
+        System.out.println("19. Initiate Video Call");
+        System.out.println("20. End Video Call");
     }
 
     private void handleUserInput(String commandInput) {
@@ -592,12 +587,62 @@ public class ChatClient4 implements AutoCloseable {
 
                     getFileByMedia(mediaToDownload, saveDir);
                     return;
-                case "15": // Initiate Video Call (now includes audio)
+
+                case "15":
+                    System.out.print("Enter Chat ID: ");
+                    int getCerntChatId = Integer.parseInt(scanner.nextLine());
+                    System.out.print("Enter lastMessage (last read): ");
+                    int lastMessageId = Integer.parseInt(scanner.nextLine());
+                    data.put("chat_id", getCerntChatId);
+                    data.put("lastMessageId", lastMessageId);
+                    request = new Request(Command.GET_CHAT_UNREADMESSAGES, data);
+
+                    Response UnReadmessagesResponse = sendRequestAndAwaitResponse(request);
+                    if (UnReadmessagesResponse != null && UnReadmessagesResponse.isSuccess() && "Messages retrieved.".equals(UnReadmessagesResponse.getMessage())) {
+                        Type messageListType = new TypeToken<List<Message>>() {}.getType();
+                        List<Message> messages = gson.fromJson(UnReadmessagesResponse.getData(), messageListType);
+                        System.out.println("\n--- Messages in Chat ID: " + getCerntChatId + " ---");
+                        if (messages == null || messages.isEmpty()) {
+                            System.out.println("No messages found in this chat.");
+                        } else {
+                            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                            for (Message msg : messages) {
+                                String senderInfo = (msg.getSenderId() == currentUser.getId()) ? "You" : "User " + msg.getSenderId();
+                                String contentToDisplay = msg.getContent() != null ? msg.getContent() : "[No text content]";
+                                String mediaInfo = "";
+                                if (msg.getMedia() != null) {
+                                    mediaInfo = String.format(" [Media Type: %s, File: %s, ID: %s]",
+                                            msg.getMedia().getMediaType(), msg.getMedia().getFileName(), msg.getMedia().getTransferId());
+                                }
+                                System.out.printf("[%s] %s: %s%s (Views: %d)\n",
+                                        msg.getSentAt().format(formatter), senderInfo, contentToDisplay, mediaInfo, msg.getViewCount());
+                            }
+                        }
+                    } else if (UnReadmessagesResponse != null) {
+                        System.out.println("Failed to get messages: " + UnReadmessagesResponse.getMessage());
+                    }
+                    return;
+                case "16":
+                    System.out.println("Enter user id ");
+                    int getUserId = Integer.parseInt(scanner.nextLine());
+                    getUserById(getUserId);
+                    return;
+                case "17":
+                    System.out.println("Enter user Phone Number ");
+                    String getUserPhoneNumber = scanner.nextLine();
+                    getUserByPhoneNumber(getUserPhoneNumber);
+                    return;
+                case "18":
+                    System.out.println("Enter chat id ");
+                    int  getAChatId = Integer.parseInt(scanner.nextLine());
+                    getChatById(getAChatId);
+                    return;
+                case "19": // Initiate Video Call (now includes audio)
                     System.out.print("Enter the client ID to call: ");
                     String targetID = scanner.nextLine();
                     initiateVideoCall(targetID);
                     return;
-                case "16": // End Video Call
+                case "20": // End Video Call
                     if (remoteVideoIp != null || remoteAudioIp != null) { // Check if a call is active
                         System.out.print("Confirm ending call? (yes/no): ");
                         if (scanner.nextLine().equalsIgnoreCase("yes")) {
@@ -1014,7 +1059,7 @@ public class ChatClient4 implements AutoCloseable {
 
     private void deleteChat(int chatId) {
         Map<String, Object> params = new HashMap<>();
-        params.put("chatId", chatId);
+        params.put("chat_id", chatId);
         Request request = new Request(Command.DELETE_CHAT, params);
         Response response = sendRequestAndAwaitResponse(request);
 
@@ -1185,6 +1230,54 @@ public class ChatClient4 implements AutoCloseable {
         }
     }
 
+
+
+
+    private void getUserByPhoneNumber(String getUserPhoneNumber) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("chat_phone_number", getUserPhoneNumber);
+        Request request = new Request(Command.GET_USER_BY_PHONENUMBER,data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "Chats retrieved by phone number.".equals(response.getMessage())) {
+            Type userType = new TypeToken<User>() {
+            }.getType();
+            User user = gson.fromJson(response.getData(), userType);
+            System.out.println("\n--- The user ---");
+            System.out.println(user.getFirstName());
+        }
+    }
+    private void getUserById(int getUserId) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("user_id", getUserId);
+        Request request = new Request(Command.GET_USER_BY_ID,data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "User retrieved by id.".equals(response.getMessage())) {
+            Type userType = new TypeToken<User>() {
+            }.getType();
+            User user = gson.fromJson(response.getData(), userType);
+            System.out.println("\n--- The user ---");
+            System.out.println(user.getFirstName());
+        }
+    }
+
+
+
+    private void getChatById(int getChatId) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("chat_id", getChatId);
+        Request request = new Request(Command.GET_CHAT_BY_ID,data);
+        Response response = sendRequestAndAwaitResponse(request);
+
+        if (response != null && response.isSuccess() && "Chats retrieved by id.".equals(response.getMessage())) {
+            Type chatType = new TypeToken<Chat>() {
+            }.getType();
+            Chat chat = gson.fromJson(response.getData(), chatType);
+            System.out.println("\n--- The Chat ---");
+            System.out.println(chat.getChatName());
+        }
+    }
     /**
      * Initiates a video call to a target user.
      * This method now discovers the client's public IP address and separate ports
@@ -1430,7 +1523,7 @@ public class ChatClient4 implements AutoCloseable {
     }
 
     public static void main(String[] args) {
-        try (ChatClient4 client = new ChatClient4()) {
+        try (ChatClient5 client = new ChatClient5()) {
             System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
             client.startClient();
         } catch (Exception e) {
